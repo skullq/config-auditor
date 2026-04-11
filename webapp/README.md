@@ -45,8 +45,17 @@ Cisco IOS-XE, NX-OS, IOS-XR, AireOS (WLC) 및 IOS 설정 파일을 자동으로 
 ## 설치 및 실행
 
 ### 방법 1: uv 사용 (권장 - 빠름)
+`uv`는 Rust로 작성된 초고속 파이썬 패키지 관리자입니다.
 ```bash
-# 의존성 설치 및 실행을 한 번에
+# 1. 가상환경 생성 및 패키지 동기화
+# (pyproject.toml 또는 requirements.txt를 자동으로 감지합니다)
+uv venv
+source .venv/bin/activate  # 또는 .venv\Scripts\activate
+
+# 2. 패키지 설치
+uv pip install -r webapp/requirements.txt
+
+# 3. 서버 실행
 cd webapp
 uv run uvicorn main:app --host 0.0.0.0 --port 8000
 ```
@@ -64,6 +73,36 @@ pip install -r requirements.txt
 # 서버 실행
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+---
+
+## 🗄 데이터베이스 설정 (SQLite)
+
+본 프로젝트는 별도의 DB 서버 설치 없이 즉시 사용 가능한 **SQLite**를 사용합니다.
+
+- **위치**: `webapp/data.db`에 파일 형태로 저장됩니다.
+- **ORM**: SQLAlchemy를 통해 데이터 모델링 및 쿼리를 처리합니다.
+- **주요 테이블**:
+  - `templates`: 골든 컨피그 항목, 호스트명 Regex, 조건부 규칙 정의
+  - `results`: 감사 수행 이력 및 상세 Pass/Fail 데이터
+  - `settings`: Ollama URL, 사용 모델 등 시스템 설정값
+---
+
+## 📂 파일 및 템플릿 관리 위치
+
+본 프로젝트의 모든 데이터는 프로젝트 폴더 내부에 로컬로 관리되어 외부 유출 위험이 적습니다.
+
+1. **업로드된 설정 파일**:
+   - 위치: `webapp/uploads/`
+   - 설명: 비교 및 분석을 위해 브라우저를 통해 업로드된 임시 설정 파일들이 저장됩니다. `.gitignore`에 포함되어 있어 Git에는 저장되지 않습니다.
+
+2. **골든 컨피그 템플릿**:
+   - 위치: `webapp/data.db` (SQLite 내부)
+   - 설명: 별도의 JSON/YAML 파일이 아닌, 데이터베이스의 `templates` 테이블에 직렬화되어 저장됩니다. 이를 통해 UI에서 편리하게 수정, 삭제 및 버전 관리를 할 수 있습니다.
+
+3. **감사 결과 보고서**:
+   - 위치: `webapp/data.db` (SQLite 내부)
+   - 설명: 모든 감사 이력과 점수, 상세 불일치 결과는 DB에 저장되어 언제든 다시 조회할 수 있습니다.
 
 ### 3. Ollama 설치 (LLM 기능 사용 시)
 ```bash
