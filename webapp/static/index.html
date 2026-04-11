@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Network Config Auditor</title>
+  <meta name="description" content="Cisco IOS-XE 설정 파일 골든 컨피그 감사 도구 — PyATS Genie 기반">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────── -->
+<header class="app-header">
+  <a class="app-logo" href="#">
+    <span class="icon">🔧</span>
+    <span>Network Config Auditor</span>
+  </a>
+  <nav class="nav-tabs">
+    <button class="nav-tab active" data-tab="tab-golden">🥇 Golden</button>
+    <button class="nav-tab" data-tab="tab-compare">🔍 Compare</button>
+    <button class="nav-tab" data-tab="tab-bulk">📂 Bulk</button>
+    <button class="nav-tab" data-tab="tab-report">📄 Report</button>
+    <button class="nav-tab" data-tab="tab-settings">⚙ Settings</button>
+  </nav>
+</header>
+
+<!-- ── Toast Container ─────────────────────────────────── -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ── Main ───────────────────────────────────────────── -->
+<main class="main-container">
+
+  <!-- ════════════════════════════════════════════════════
+       TAB 1: GOLDEN CONFIG
+       ════════════════════════════════════════════════════ -->
+  <section id="tab-golden" class="tab-panel active">
+    <div class="section-header mb-3">
+      <h1 class="section-title">🥇 골든 컨피그 템플릿 생성</h1>
+    </div>
+
+    <!-- 파일 업로드 -->
+    <div class="card">
+      <div class="card-title">📁 골든 설정 파일 업로드</div>
+      <div class="form-group mb-3">
+        <label class="form-label">OS 타입 선택</label>
+        <select id="golden-os-select" class="form-select">
+          <option value="auto" selected>자동 감지 (Auto Detect)</option>
+          <option value="iosxe">Cisco IOS-XE</option>
+          <option value="nxos">Cisco NX-OS</option>
+          <option value="iosxr">Cisco IOS-XR</option>
+          <option value="ios">Cisco IOS</option>
+          <option value="aireos">Cisco AireOS (WLC)</option>
+        </select>
+      </div>
+      <div class="drop-zone" id="golden-drop-zone">
+        <input type="file" id="golden-file-input" accept=".cfg,.txt,.conf">
+        <div class="drop-icon">📁</div>
+        <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
+        <p>Cisco IOS / IOS-XE 설정 파일 (.cfg, .txt, .conf)</p>
+      </div>
+    </div>
+
+    <!-- 분석 결과 -->
+    <div id="golden-results-area" style="display:none">
+
+      <!-- 정보 요약 -->
+      <div class="card">
+        <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="card-title" style="margin-bottom:4px">📊 파싱 결과</div>
+            <div class="text-muted">
+              Hostname: <strong id="golden-hostname">—</strong> &nbsp;·&nbsp;
+              섹션: <strong id="golden-section-count">0</strong>개 &nbsp;·&nbsp;
+              항목: <strong id="golden-item-count">0</strong>개
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button id="golden-select-all"  class="btn btn-secondary btn-sm">전체 선택</button>
+            <button id="golden-select-none" class="btn btn-secondary btn-sm">전체 해제</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 섹션 필터 -->
+      <div class="card">
+        <div class="card-title">🔎 섹션 필터</div>
+        <div class="items-filter" id="golden-section-filters">
+          <button class="filter-btn active" data-section="">전체</button>
+        </div>
+        <hr class="divider">
+        <div class="items-list" id="golden-items-list"></div>
+      </div>
+
+      <!-- 템플릿 저장 설정 -->
+      <div class="card">
+        <div class="card-title">💾 템플릿 기본 정보</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">템플릿 이름 *</label>
+            <input id="golden-template-name" class="form-input" type="text" placeholder="예: Standard-V1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">기본 적용 Hostname Regex</label>
+            <input id="golden-hostname-regex" class="form-input" type="text" placeholder="예: ^.*-CE\d+">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="card-title">🎭 호스트명 매칭 동적 액션 (Conditional Rules)</div>
+        <p class="text-muted mb-3" style="font-size:12px">호스트명이 특정 패턴과 일치할 때 추가적으로 검사할 항목을 정의합니다.</p>
+        <div id="golden-conditional-container" class="flex flex-direction-column gap-2 mb-3">
+          <!-- 규칙들이 동적으로 추가됨 -->
+        </div>
+        <button id="golden-add-rule-btn" class="btn btn-secondary btn-sm mb-3">+ 규칙 추가</button>
+
+        <div class="divider"></div>
+
+        <div class="form-group">
+          <label class="form-label">설명</label>
+          <input id="golden-description" class="form-input" type="text" placeholder="설명 입력">
+        </div>
+        <button id="golden-save-btn" class="btn btn-primary">💾 골든 템플릿 최종 저장</button>
+      </div>
+    </div>
+
+    <!-- 저장된 템플릿 목록 -->
+    <div class="card" id="golden-templates-card">
+      <div class="card-title">📋 저장된 템플릿</div>
+      <div id="golden-templates-list">
+        <div class="empty-state"><div class="empty-icon">📋</div><p>저장된 템플릿 없음</p></div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ════════════════════════════════════════════════════
+       TAB 2: COMPARE
+       ════════════════════════════════════════════════════ -->
+  <section id="tab-compare" class="tab-panel">
+    <div class="section-header mb-3">
+      <h1 class="section-title">🔍 설정 파일 비교</h1>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📁 비교할 설정 파일 업로드</div>
+      <div class="form-group mb-3">
+        <label class="form-label">OS 타입 선택</label>
+        <select id="compare-os-select" class="form-select">
+          <option value="auto" selected>자동 감지 (Auto Detect)</option>
+          <option value="iosxe">Cisco IOS-XE</option>
+          <option value="nxos">Cisco NX-OS</option>
+          <option value="iosxr">Cisco IOS-XR</option>
+          <option value="ios">Cisco IOS</option>
+          <option value="aireos">Cisco AireOS (WLC)</option>
+        </select>
+      </div>
+      <div class="drop-zone" id="compare-drop-zone">
+        <input type="file" id="compare-file-input" accept=".cfg,.txt,.conf">
+        <div class="drop-icon">📁</div>
+        <h3>비교할 설정 파일을 드래그하거나 클릭</h3>
+        <p>Hostname이 자동으로 감지되어 템플릿에 매칭됩니다</p>
+      </div>
+    </div>
+
+    <div id="compare-controls" class="card" style="display:none">
+      <div class="flex items-center gap-3" style="flex-wrap:wrap">
+        <div>
+          <span class="text-muted">Hostname:</span>
+          <strong id="compare-hostname">—</strong>
+        </div>
+        <div style="color:var(--accent);font-size:12px" id="compare-match-info"></div>
+      </div>
+      <div class="form-row mt-3">
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">비교 템플릿</label>
+          <select id="compare-template-select" class="form-select">
+            <option value="">템플릿 로딩 중...</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;display:flex;align-items:flex-end;gap:8px">
+          <button id="compare-run-btn" class="btn btn-primary">▶ 비교 실행</button>
+          <button id="compare-report-btn" class="btn btn-secondary" style="display:none">
+            📄 레포트 생성
+          </button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary)">
+            <input type="checkbox" id="compare-use-llm"> LLM 사용
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 비교 결과 -->
+    <div id="compare-result-area" style="display:none"></div>
+
+    <!-- 비교 이력 -->
+    <div class="card">
+      <div class="card-title">🕐 최근 비교 이력</div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Hostname</th><th>템플릿</th><th>결과</th><th>점수</th><th>액션</th>
+            </tr>
+          </thead>
+          <tbody id="compare-history-body">
+            <tr><td colspan="5" class="empty-state">이력 없음</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ════════════════════════════════════════════════════
+       TAB 3: BULK
+       ════════════════════════════════════════════════════ -->
+  <section id="tab-bulk" class="tab-panel">
+    <div class="section-header mb-3">
+      <h1 class="section-title">📂 벌크 업로드</h1>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📁 여러 설정 파일 업로드</div>
+      <div class="drop-zone" id="bulk-drop-zone">
+        <input type="file" id="bulk-file-input" multiple accept=".cfg,.txt,.conf">
+        <div class="drop-icon">📂</div>
+        <h3>여러 설정 파일을 드래그하거나 클릭</h3>
+        <p>모든 파일이 Hostname 기반으로 템플릿에 자동 매칭됩니다</p>
+      </div>
+      <div class="mt-3">
+        <button id="bulk-run-btn" class="btn btn-primary">▶ 일괄 비교 시작</button>
+      </div>
+    </div>
+
+    <div id="bulk-results-area" style="display:none"></div>
+  </section>
+
+
+  <!-- ════════════════════════════════════════════════════
+       TAB 4: REPORT
+       ════════════════════════════════════════════════════ -->
+  <section id="tab-report" class="tab-panel">
+    <div class="section-header mb-3">
+      <div>
+        <h1 class="section-title">📄 감사 레포트</h1>
+        <div class="text-muted" id="report-hostname"></div>
+      </div>
+      <div id="report-actions" class="flex gap-2" style="display:none!important">
+        <button id="report-copy-btn" class="btn btn-secondary">📋 복사</button>
+        <button id="report-download-btn" class="btn btn-secondary">⬇ 다운로드</button>
+      </div>
+    </div>
+
+    <div id="report-empty" class="card">
+      <div class="empty-state">
+        <div class="empty-icon">📄</div>
+        <p>Compare 탭에서 "레포트 생성"을 클릭하면 여기에 표시됩니다</p>
+      </div>
+    </div>
+
+    <pre id="report-output" class="report-output" style="display:none"></pre>
+  </section>
+
+
+  <!-- ════════════════════════════════════════════════════
+       TAB 5: SETTINGS
+       ════════════════════════════════════════════════════ -->
+  <section id="tab-settings" class="tab-panel">
+    <div class="section-header mb-3">
+      <h1 class="section-title">⚙ 설정</h1>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🤖 Ollama LLM 설정</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Ollama URL</label>
+          <input id="settings-ollama-url" class="form-input" type="text" value="http://localhost:11434">
+        </div>
+        <div class="form-group">
+          <label class="form-label">상태</label>
+          <div style="display:flex;align-items:center;gap:8px;height:38px">
+            <span id="settings-ollama-status" style="font-size:13px">확인 중...</span>
+            <button id="settings-test-btn" class="btn btn-secondary btn-sm">연결 테스트</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label flex items-center gap-2">
+          모델 선택
+          <button id="settings-model-refresh" class="btn btn-secondary btn-sm">🔄 새로고침</button>
+        </label>
+        <select id="settings-model-select" class="form-select">
+          <option value="">불러오는 중...</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">레포트 프롬프트 템플릿</label>
+        <p class="text-muted" style="font-size:12px;margin-bottom:8px">
+          사용 가능한 변수: {hostname}, {template_name}, {overall}, {score}, {items_summary}
+        </p>
+        <textarea id="settings-prompt" class="form-textarea" style="min-height:200px"></textarea>
+      </div>
+
+      <button id="settings-save-btn" class="btn btn-primary">💾 설정 저장</button>
+    </div>
+
+    <!-- Ollama 설치 안내 -->
+    <div class="card">
+      <div class="card-title">📘 Ollama 설치 방법</div>
+      <div style="font-size:13px;line-height:2;color:var(--text-secondary)">
+        <p>1. 설치: <code class="text-code">curl -fsSL https://ollama.ai/install.sh | sh</code></p>
+        <p>2. 모델 다운로드: <code class="text-code">ollama pull llama3</code></p>
+        <p>3. 서버 시작: <code class="text-code">ollama serve</code></p>
+        <p style="margin-top:8px;color:var(--text-muted)">
+          ※ Ollama 없이도 기본 텍스트 레포트는 자동 생성됩니다.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script type="module">
+  import { initTabs } from '/static/js/app.js';
+  import { initGolden } from '/static/js/golden.js';
+  import { initCompare } from '/static/js/compare.js';
+  import { initBulk } from '/static/js/bulk.js';
+  import { initSettings, initReport } from '/static/js/settings.js';
+
+  initTabs();
+  initGolden();
+  initCompare();
+  initBulk();
+  initSettings();
+  initReport();
+
+  // Report 탭: 내용 있으면 empty 숨기기
+  window.addEventListener('show-report', () => {
+    document.getElementById('report-empty').style.display = 'none';
+    document.getElementById('report-output').style.display = 'block';
+    document.getElementById('report-actions').style.display = 'flex';
+  });
+
+  // 골든 템플릿 목록 로드
+  async function loadGoldenTemplates() {
+    try {
+      const res = await fetch('/api/golden/templates');
+      const templates = await res.json();
+      const container = document.getElementById('golden-templates-list');
+      if (!templates.length) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>저장된 템플릿 없음</p></div>';
+        return;
+      }
+      container.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr><th>이름</th><th>Hostname 패턴</th><th>생성일</th><th>액션</th></tr>
+          </thead>
+          <tbody>
+            ${templates.map(t => `
+              <tr>
+                <td><strong>${t.name}</strong></td>
+                <td><code>${t.hostname_regex || '—'}</code></td>
+                <td>${new Date(t.created_at).toLocaleString('ko-KR', {dateStyle:'short',timeStyle:'short'})}</td>
+                <td>
+                  <button class="btn btn-sm btn-danger" onclick="deleteTemplate('${t.id}', '${t.name}')">삭제</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch {}
+  }
+
+  window.deleteTemplate = async (id, name) => {
+    if (!confirm(`"${name}" 템플릿을 삭제하시겠습니까?`)) return;
+    await fetch(`/api/golden/templates/${id}`, { method: 'DELETE' });
+    loadGoldenTemplates();
+    import('/static/js/app.js').then(m => m.toast('템플릿 삭제됨', 'success'));
+  };
+
+  loadGoldenTemplates();
+
+  // 탭 전환 시 템플릿 목록 갱신
+  document.querySelector('[data-tab="tab-golden"]').addEventListener('click', loadGoldenTemplates);
+</script>
+</body>
+</html>

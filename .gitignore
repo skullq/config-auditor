@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+.env
+
+# Database
+webapp/data.db
+data.db
+
+# User Uploads & Temporary files
+webapp/uploads/*
+!webapp/uploads/.gitkeep
+webapp/server.log
+server.log
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
