@@ -72,6 +72,7 @@ class SaveTemplateRequest(BaseModel):
     selected_items: list[dict]
     conditional_rules: list[dict] = []
     golden_parsed: dict
+    template_id: Optional[str] = None
 
 
 @app.post("/api/golden/save")
@@ -84,6 +85,7 @@ async def golden_save(req: SaveTemplateRequest):
         golden_items=req.selected_items,
         conditional_rules=req.conditional_rules,
         golden_parsed=req.golden_parsed,
+        template_id=req.template_id,
     )
     return {"template_id": tid, "message": "저장 완료"}
 
@@ -154,8 +156,9 @@ async def compare_run(req: RunCompareRequest):
     result = compare(tpl["golden_items"], req.parsed, tpl.get("conditional_rules", []))
     hostname = req.parsed.get("hostname", "unknown")
 
+    rid = None
     if req.save:
-        save_compare_result(
+        rid = save_compare_result(
             hostname=hostname,
             template_id=req.template_id,
             template_name=tpl["name"],
@@ -165,6 +168,7 @@ async def compare_run(req: RunCompareRequest):
         )
 
     return {
+        "id": rid,
         "hostname": hostname,
         "template_name": tpl["name"],
         **result,
@@ -175,6 +179,28 @@ async def compare_run(req: RunCompareRequest):
 async def compare_results_list():
     return list_compare_results()
 
+@app.delete("/api/compare/results/{rid}")
+async def compare_result_delete(rid: str):
+    from db.database import delete_compare_result
+    delete_compare_result(rid)
+    # Delete report file if exists
+    report_file = REPORT_DIR / f"{rid}.md"
+    if report_file.exists():
+        report_file.unlink()
+    return {"message": "삭제 완료"}
+
+@app.get("/api/compare/download/{rid}")
+async def compare_result_download(rid: str):
+    r = get_compare_result(rid)
+    if not r:
+        raise HTTPException(404, "결과를 찾을 수 없습니다.")
+    import json
+    return StreamingResponse(
+        iter([json.dumps(r, ensure_ascii=False, indent=2)]),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename=compare_{r['hostname']}_{rid[:8]}.json"}
+    )
+
 
 @app.get("/api/compare/results/{rid}")
 async def compare_result_get(rid: str):
@@ -184,84 +210,64 @@ async def compare_result_get(rid: str):
     return r
 
 
+@app.get("/api/compare/check_duplicate")
+async def compare_check_duplicate(hostname: str):
+    results = list_compare_results()
+    for r in results:
+        if r["hostname"] == hostname:
+            return {"exists": True, "result_id": r["id"]}
+    return {"exists": False}
+
+
 # ════════════════════════════════════════════════════════════════════════
-# BULK API
+# REPORT & LLM API
 # ════════════════════════════════════════════════════════════════════════
 
-@app.post("/api/bulk/upload")
-async def bulk_upload(files: list[UploadFile] = File(...)):
-    """여러 파일 업로드 → 자동 매칭 + 비교 일괄 처리."""
-    job_id = str(uuid.uuid4())
-    templates_meta = list_templates()
-    templates_full = [get_template(t["id"]) for t in templates_meta]
-    templates_full = [t for t in templates_full if t]
+REPORT_DIR = Path(__file__).parent / "reports"
+REPORT_DIR.mkdir(exist_ok=True)
 
-    results = []
-    for file in files:
-        content = (await file.read()).decode("utf-8", errors="replace")
-        parsed = parse_config(content)
-        hostname = parsed.get("hostname") or file.filename or "unknown"
+@app.get("/api/reports/list")
+async def list_reports_api():
+    """DB의 Compare 이력과 저장된 Report 파일을 조합하여 반환"""
+    results = list_compare_results()
+    for r in results:
+        report_file = REPORT_DIR / f"{r['id']}.md"
+        r["has_report"] = report_file.exists()
+    return results
 
-        matched_tpl = match_template(hostname, templates_full)
-        if not matched_tpl:
-            results.append({
-                "filename": file.filename,
-                "hostname": hostname,
-                "overall": "Skipped",
-                "score": None,
-                "message": "매칭되는 템플릿 없음",
-                "result_id": None,
-            })
-            continue
+@app.delete("/api/reports/duplicates")
+async def delete_duplicate_reports():
+    """호스트명 기준 최신 내역 1건만 남기고 중복된 과거 내역을 일괄 삭제합니다."""
+    results = list_compare_results()
+    seen = set()
+    deleted = 0
+    from db.database import delete_compare_result
+    
+    for r in results:
+        hostname = r["hostname"]
+        if hostname in seen:
+            rid = r["id"]
+            delete_compare_result(rid)
+            report_file = REPORT_DIR / f"{rid}.md"
+            if report_file.exists():
+                report_file.unlink()
+            deleted += 1
+        else:
+            seen.add(hostname)
+            
+    return {"message": f"중복 내역 {deleted}건이 삭제되었습니다.", "deleted_count": deleted}
 
-        cmp_result = compare(matched_tpl["golden_items"], parsed, matched_tpl.get("conditional_rules", []))
-        rid = save_compare_result(
-            hostname=hostname,
-            template_id=matched_tpl["id"],
-            template_name=matched_tpl["name"],
-            overall=cmp_result["overall"],
-            score=cmp_result["score"],
-            detail=cmp_result,
-            bulk_job_id=job_id,
-        )
-        results.append({
-            "filename": file.filename,
-            "hostname": hostname,
-            "template_name": matched_tpl["name"],
-            "overall": cmp_result["overall"],
-            "score": cmp_result["score"],
-            "result_id": rid,
-        })
-
-    return {"job_id": job_id, "results": results}
-
-
-@app.get("/api/bulk/results/{job_id}")
-async def bulk_results(job_id: str):
-    return list_compare_results(bulk_job_id=job_id)
-
-
-@app.get("/api/bulk/results/{job_id}/export")
-async def bulk_export(job_id: str):
-    """CSV 다운로드."""
-    rows = list_compare_results(bulk_job_id=job_id)
-    lines = ["hostname,template,overall,score,date"]
-    for r in rows:
-        lines.append(
-            f"{r['hostname']},{r['template_name']},{r['overall']},{r['score']},{r['created_at']}"
-        )
-    csv_content = '\n'.join(lines)
-
+@app.get("/api/reports/download/{rid}")
+async def download_report(rid: str):
+    report_file = REPORT_DIR / f"{rid}.md"
+    if not report_file.exists():
+        raise HTTPException(404, "레포트 파일이 없습니다.")
     return StreamingResponse(
-        iter([csv_content]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=bulk_{job_id[:8]}.csv"},
+        open(report_file, "rb"),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f"attachment; filename=report_{rid[:8]}.md"}
     )
 
-
-# ════════════════════════════════════════════════════════════════════════
-# LLM / REPORT API
-# ════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/llm/models")
 async def llm_models():
@@ -295,6 +301,13 @@ async def llm_settings_get():
         "prompt_template": get_setting("prompt_template", DEFAULT_PROMPT_TEMPLATE),
     }
 
+from db.database import reset_db_data
+
+@app.post("/api/settings/reset")
+async def wipe_database_api():
+    reset_db_data()
+    return {"message": "데이터가 모두 초기화되었습니다."}
+
 
 class GenerateReportRequest(BaseModel):
     result_id: str
@@ -302,7 +315,7 @@ class GenerateReportRequest(BaseModel):
 
 
 @app.post("/api/llm/report")
-async def llm_report(req: GenerateReportRequest):
+async def llm_report_basic(req: GenerateReportRequest):
     r = get_compare_result(req.result_id)
     if not r:
         raise HTTPException(404, "비교 결과를 찾을 수 없습니다.")
@@ -311,19 +324,60 @@ async def llm_report(req: GenerateReportRequest):
     template_name = r.get("template_name", "unknown")
     compare_result = r.get("detail", {})
 
-    if req.use_llm:
-        base_url = get_setting("ollama_url", "http://localhost:11434")
-        model = get_setting("ollama_model", "llama3")
-        prompt_template = get_setting("prompt_template", DEFAULT_PROMPT_TEMPLATE)
-        try:
-            report = await generate_report(
-                compare_result, hostname, template_name,
-                base_url=base_url, model=model, prompt_template=prompt_template,
-            )
-        except Exception as e:
-            report = generate_basic_report(compare_result, hostname, template_name)
-            report += f"\n\n> ⚠️ LLM 오류 ({e}), 기본 레포트 사용"
-    else:
-        report = generate_basic_report(compare_result, hostname, template_name)
+    report = generate_basic_report(compare_result, hostname, template_name)
+    report_file = REPORT_DIR / f"{req.result_id}.md"
+    report_file.write_text(report, encoding="utf-8")
+    
+    return {"message": "기본 레포트 생성 완료", "hostname": hostname}
 
-    return {"report": report, "hostname": hostname}
+
+from core.llm import generate_report_stream
+import json
+
+@app.get("/api/llm/report/stream/{result_id}")
+async def llm_report_stream(result_id: str):
+    r = get_compare_result(result_id)
+    if not r:
+        raise HTTPException(404, "비교 결과를 찾을 수 없습니다.")
+
+    hostname = r.get("hostname", "unknown")
+    template_name = r.get("template_name", "unknown")
+    compare_result = r.get("detail", {})
+
+    base_url = get_setting("ollama_url", "http://localhost:11434")
+    model = get_setting("ollama_model", "llama3")
+    prompt_template = get_setting("prompt_template", DEFAULT_PROMPT_TEMPLATE)
+
+    async def stream_and_save():
+        full_text = ""
+        # 0. 연결 확인용 첫 패킷 (JS에서 연결 성공을 즉시 알 수 있게 함)
+        yield f"data: {json.dumps({'debug': 'Stream connected'})}\n\n"
+        
+        try:
+            async for chunk_sse in generate_report_stream(
+                compare_result, hostname, template_name,
+                base_url=base_url, model=model, prompt_template=prompt_template
+            ):
+                if chunk_sse.startswith("data: "):
+                    content = chunk_sse[6:].rstrip('\r\n')
+                    if content and content != "[DONE]":
+                        try:
+                            parsed = json.loads(content)
+                            if "text" in parsed:
+                                full_text += parsed["text"]
+                        except: pass
+                yield chunk_sse
+        except Exception as e:
+            error_msg = f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield error_msg
+        finally:
+            report_file = REPORT_DIR / f"{result_id}.md"
+            if full_text:
+                report_file.write_text(full_text, encoding="utf-8")
+            else:
+                # LLM이 아무것도 안 줬을 경우, 빈 파일로라도 저장하여 404 방지 및 기본 내용 구성
+                from core.llm import generate_basic_report
+                basic = generate_basic_report(compare_result, hostname, template_name)
+                report_file.write_text(f"⚠️ LLM 분석 실패 (Ollama 확인 필요)\n\n{basic}", encoding="utf-8")
+
+    return StreamingResponse(stream_and_save(), media_type="text/event-stream")

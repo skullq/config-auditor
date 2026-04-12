@@ -1,104 +1,190 @@
 // compare.js — 비교 탭
 
-import { api, uploadFile, initDropZone, setLoading, toast, overallChip, fmtDate } from './app.js';
+import { api, uploadFile, initDropZone, toast, overallChip, fmtDate, setLoading } from './app.js';
 
-let uploadedParsed = null;
-let selectedTemplateId = null;
+let pendingCompareQueue = [];
 
 export function initCompare() {
   const zone  = document.getElementById('compare-drop-zone');
   const input = document.getElementById('compare-file-input');
-  const runBtn = document.getElementById('compare-run-btn');
-  const reportBtn = document.getElementById('compare-report-btn');
 
-  initDropZone(zone, input, files => handleCompareUpload(files[0]));
-  runBtn.addEventListener('click', runCompare);
-  reportBtn.addEventListener('click', () => generateReport());
+  // Load templates on click
+  document.querySelector('[data-tab="tab-compare"]').addEventListener('click', loadCompareTemplates);
+  loadCompareTemplates();
 
-  document.getElementById('compare-template-select').addEventListener('change', e => {
-    selectedTemplateId = e.target.value;
+  initDropZone(zone, input, (files) => {
+    if (files.length === 0) return;
+    
+    const tbody = document.getElementById('compare-history-body');
+    const emptyState = tbody.querySelector('.empty-state');
+    if (emptyState) tbody.innerHTML = '';
+    
+    files.forEach(f => {
+      pendingCompareQueue.push(f);
+      const tr = document.createElement('tr');
+      tr.id = 'queue-' + f.name.replace(/[^a-zA-Z0-9]/g, '');
+      tr.innerHTML = `
+        <td><strong>${f.name}</strong><br><small style="color:var(--text-muted)">대기 중...</small></td>
+        <td>-</td>
+        <td><div style="font-size:12px;color:var(--text-muted)">⏳ 실행 대기</div></td>
+        <td>-</td>
+        <td>-</td>
+        <td>-</td>
+      `;
+      tbody.insertBefore(tr, tbody.firstChild);
+    });
+    
+    toast(`${files.length}개 파일이 대기열에 추가되었습니다.`, 'info');
   });
 
-  loadTemplateOptions();
-  loadRecentResults();
+  document.getElementById('compare-run-btn').addEventListener('click', executeCompareQueue);
+  document.getElementById('compare-clear-btn').addEventListener('click', () => {
+    pendingCompareQueue = [];
+    document.getElementById('compare-history-body').innerHTML = '<tr><td colspan="5" class="empty-state">파일을 업로드하면 순차적으로 진행됩니다.</td></tr>';
+    document.getElementById('compare-result-area').style.display = 'none';
+  });
 }
 
-async function loadTemplateOptions() {
+async function loadCompareTemplates() {
   try {
-    const templates = await api('/api/golden/templates');
+    const res = await fetch('/api/golden/templates?_=' + Date.now());
+    const templates = await res.json();
     const sel = document.getElementById('compare-template-select');
-    sel.innerHTML = `<option value="">— 자동 매칭 —</option>`;
+    sel.innerHTML = '<option value="auto" selected>자동 매칭 (Hostname 기반)</option>';
     templates.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = `${t.name}  [${t.hostname_regex || '모든 호스트'}]`;
-      sel.appendChild(opt);
+       sel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
     });
-  } catch {}
+  } catch(e) {}
 }
 
-async function handleCompareUpload(file) {
-  const zone = document.getElementById('compare-drop-zone');
-  const osType = document.getElementById('compare-os-select').value;
-  zone.innerHTML = `<div class="loading-overlay"><div class="spinner"></div><span>설정 분석 중... (${osType})</span></div>`;
+async function executeCompareQueue() {
+  if (pendingCompareQueue.length === 0) {
+    toast('대기열에 실행할 파일이 없습니다.', 'warning');
+    return;
+  }
+  
+  const filesToRun = [...pendingCompareQueue];
+  pendingCompareQueue = []; // 큐 초기화 (다음 드롭을 위해)
+  
+  toast(`${filesToRun.length}개 파일 비교 시작`, 'info');
+  for (let i = 0; i < filesToRun.length; i++) {
+      await processSingleFile(filesToRun[i]);
+  }
+  toast(`비교 실행 완료`, 'success');
+}
 
+
+async function checkDuplicate(hostname) {
   try {
-    const data = await uploadFile(`/api/compare/upload?os=${osType}`, file);
-    if (data.os) document.getElementById('compare-os-select').value = data.os;
-    uploadedParsed = data.parsed;
-
-    document.getElementById('compare-hostname').textContent = data.hostname || '(알 수 없음)';
-
-    if (data.matched_template) {
-      document.getElementById('compare-match-info').textContent =
-        `자동 매칭: ${data.matched_template.name}`;
-      document.getElementById('compare-template-select').value = data.matched_template.id;
-      selectedTemplateId = data.matched_template.id;
-    } else {
-      document.getElementById('compare-match-info').textContent = '자동 매칭 없음 — 템플릿을 선택해주세요';
-    }
-
-    document.getElementById('compare-controls').style.display = 'flex';
-
-    zone.innerHTML = `
-      <div class="drop-icon">✅</div>
-      <h3>${file.name}</h3>
-      <p>업로드 완료 — 다른 파일을 올리려면 클릭</p>
-    `;
-  } catch (err) {
-    zone.innerHTML = `
-      <div class="drop-icon">📁</div>
-      <h3>비교할 설정 파일을 드래그하거나 클릭</h3>
-      <p>Cisco IOS / IOS-XE .cfg 파일 지원</p>
-    `;
-    toast(`업로드 실패: ${err.message}`, 'error');
+     const res = await api(`/api/compare/check_duplicate?hostname=${encodeURIComponent(hostname)}`);
+     return res.exists;
+  } catch(e) {
+     return false;
   }
 }
 
-async function runCompare() {
-  if (!uploadedParsed) return toast('먼저 파일을 업로드하세요.', 'error');
-  const templateId = selectedTemplateId || document.getElementById('compare-template-select').value;
-  if (!templateId) return toast('템플릿을 선택하세요.', 'error');
+async function processSingleFile(file) {
+  const tbody = document.getElementById('compare-history-body');
+  const tr = document.createElement('tr');
+  const rowId = 'row-' + Date.now() + Math.random().toString(36).substr(2, 5);
+  tr.id = rowId;
+  
+  tr.innerHTML = `
+    <td><strong>${file.name}</strong><br><small style="color:var(--text-muted)">Hostname: (확인 중...)</small></td>
+    <td>-</td>
+    <td><div class="spinner" style="width:14px;height:14px;display:inline-block"></div> 1/4 파싱 및 분석 중...</td>
+    <td>-</td>
+    <td>-</td>
+    <td>-</td>
+  `;
+  // 기존 대기 UI 교체
+  const qId = 'queue-' + file.name.replace(/[^a-zA-Z0-9]/g, '');
+  const existingTr = document.getElementById(qId);
+  if (existingTr) existingTr.replaceWith(tr);
+  else tbody.insertBefore(tr, tbody.firstChild);
 
-  const btn = document.getElementById('compare-run-btn');
-  setLoading(btn, true, '비교 실행 중...');
-
+  const osType = document.getElementById('compare-os-select').value;
+  const targetTpl = document.getElementById('compare-template-select').value;
+  
   try {
+    // 1. Upload & Parsing
+    const data = await uploadFile(`/api/compare/upload?os=${osType}`, file);
+    const hostname = data.hostname || file.name;
+    
+    tr.children[0].innerHTML = `<strong>${file.name}</strong><br><small style="color:var(--text-muted)">Hostname: <code>${hostname}</code></small>`;
+    tr.children[2].innerHTML = `<div class="spinner" style="width:14px;height:14px;display:inline-block"></div> 2/4 템플릿 매칭 중...`;
+    
+    // 2. Template matching check
+    let matchedTemplateId = null;
+    let matchedTemplateName = null;
+    
+    if (targetTpl === 'auto') {
+      if (!data.matched_template) {
+         tr.children[1].innerHTML = `<span style="color:var(--danger)">자동 매칭 템플릿 없음</span>`;
+         tr.children[2].innerHTML = `❌ 오류`;
+         tr.children[3].textContent = 'Skipped';
+         return;
+      }
+      matchedTemplateId = data.matched_template.id;
+      matchedTemplateName = data.matched_template.name;
+    } else {
+      matchedTemplateId = targetTpl;
+      matchedTemplateName = document.getElementById('compare-template-select').options[document.getElementById('compare-template-select').selectedIndex].text;
+    }
+    
+    tr.children[1].textContent = matchedTemplateName;
+    tr.children[2].innerHTML = `<div class="spinner" style="width:14px;height:14px;display:inline-block"></div> 3/4 골든 컨피그와 비교 중...`;
+    
+    // 3. Duplicate check for LLM Report warning
+    const isDup = await checkDuplicate(hostname);
+    if (isDup) {
+       toast(`[${hostname}] 기존 결과가 존재합니다. LLM 레포트 재생성이 필요할 수 있습니다.`, 'warning');
+    }
+    
+    // 4. Run compare
     const result = await api('/api/compare/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parsed: uploadedParsed, template_id: templateId, save: true }),
+      body: JSON.stringify({ parsed: data.parsed, template_id: matchedTemplateId, save: true }),
     });
-    renderResult(result);
-    document.getElementById('compare-report-btn').style.display = 'inline-flex';
-    document.getElementById('compare-report-btn').dataset.hostname = result.hostname;
-    loadRecentResults();
+    
+    // 5. Update row
+    tr.children[2].innerHTML = `✅ 4/4 비교 완료`;
+    tr.children[3].innerHTML = overallChip(result.overall);
+    tr.children[4].textContent = `${result.score}%`;
+    tr.children[5].innerHTML = `<button class="btn btn-sm btn-secondary" onclick="window.viewResult('${result.id}')">🔍 상세 보기</button>`;
+    
+    // 상세 보기 클릭 이벤트 속성 추가 (테이블 줄바꿈도 계속 지원)
+    tr.style.cursor = 'pointer';
+    tr.onclick = (e) => {
+        // 만약 버튼 자체를 누른게 아니라면 바로보기 실행
+        if (e.target.tagName !== 'BUTTON') window.viewResult(result.id);
+    };
+    tr.title = "클릭하여 자세한 결과를 확인하세요";
+    
+    // 내부 result 저장
+    if(!window._compareResults) window._compareResults = {};
+    if(result.id) window._compareResults[result.id] = result;
+    
   } catch (err) {
-    toast(`비교 실패: ${err.message}`, 'error');
-  } finally {
-    setLoading(btn, false);
+    tr.children[2].innerHTML = `<span style="color:var(--danger)">❌ 오류 발생</span>`;
+    tr.children[3].textContent = err.message;
   }
 }
+
+
+window.viewResult = async (id) => {
+  try {
+    let result = window._compareResults && window._compareResults[id];
+    if (!result) {
+        const r = await api(`/api/compare/results/${id}`);
+        result = { ...r.detail, hostname: r.hostname, template_name: r.template_name };
+    }
+    renderResult(result);
+  } catch (err) {
+    toast(`결과 조회 실패: ${err.message}`, 'error');
+  }
+};
 
 function renderResult(result) {
   const area = document.getElementById('compare-result-area');
@@ -133,77 +219,7 @@ function renderResult(result) {
     <div class="result-items">${itemsHtml}</div>
   `;
   area.style.display = 'block';
-
-  // 최신 결과 ID 저장 (레포트 생성용)
-  area.dataset.latestResult = '';  // 다음 results 로드 후 채워짐
+  
+  // Smooth scroll
+  area.scrollIntoView({ behavior: 'smooth' });
 }
-
-async function loadRecentResults() {
-  try {
-    const results = await api('/api/compare/results');
-    const tbody = document.getElementById('compare-history-body');
-    if (!results.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">비교 이력 없음</td></tr>';
-      return;
-    }
-    tbody.innerHTML = results.slice(0, 10).map(r => `
-      <tr>
-        <td><code>${r.hostname}</code></td>
-        <td>${r.template_name}</td>
-        <td>${overallChip(r.overall)}</td>
-        <td>${r.score ?? '—'}%</td>
-        <td>
-          <button class="btn btn-sm btn-secondary" onclick="window.viewResult('${r.id}')">상세</button>
-          <button class="btn btn-sm btn-secondary" onclick="window.reportResult('${r.id}', '${r.hostname}')">레포트</button>
-        </td>
-      </tr>
-    `).join('');
-  } catch {}
-}
-
-async function generateReport(resultId = null, hostname = null) {
-  // resultId가 없으면 최신 결과 사용
-  if (!resultId) {
-    const results = await api('/api/compare/results').catch(() => []);
-    if (!results.length) return toast('비교 결과가 없습니다.', 'error');
-    resultId = results[0].id;
-    hostname = results[0].hostname;
-  }
-
-  const useLlm = document.getElementById('compare-use-llm')?.checked ?? false;
-  const btn = document.getElementById('compare-report-btn');
-  if (btn) setLoading(btn, true, '레포트 생성 중...');
-
-  try {
-    const res = await api('/api/llm/report', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ result_id: resultId, use_llm: useLlm }),
-    });
-
-    // Report 탭으로 전달
-    window.dispatchEvent(new CustomEvent('show-report', {
-      detail: { report: res.report, hostname: res.hostname }
-    }));
-
-    // Report 탭 활성화
-    document.querySelector('[data-tab="tab-report"]').click();
-  } catch (err) {
-    toast(`레포트 생성 실패: ${err.message}`, 'error');
-  } finally {
-    if (btn) setLoading(btn, false);
-  }
-}
-
-// 전역 함수 등록
-window.viewResult = async (id) => {
-  try {
-    const r = await api(`/api/compare/results/${id}`);
-    renderResult({ ...r.detail, hostname: r.hostname, template_name: r.template_name });
-    document.querySelector('[data-tab="tab-compare"]').click();
-  } catch (err) {
-    toast(`결과 조회 실패: ${err.message}`, 'error');
-  }
-};
-
-window.reportResult = (id, hostname) => generateReport(id, hostname);

@@ -96,6 +96,53 @@ async def generate_report(
         return data.get("response", "")
 
 
+async def generate_report_stream(
+    compare_result: dict,
+    hostname: str,
+    template_name: str,
+    base_url: str = DEFAULT_OLLAMA_URL,
+    model: str = "llama3",
+    prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
+) -> AsyncIterator[str]:
+    """
+    비교 결과를 Ollama LLM에 전달하여 레포트 생성 (스트리밍).
+    SSE 포맷으로 텍스트를 응답.
+    """
+    items_summary = _build_items_summary(compare_result)
+    prompt = prompt_template.format(
+        hostname=hostname,
+        template_name=template_name,
+        overall=compare_result.get("overall", "N/A"),
+        score=compare_result.get("score", 0),
+        items_summary=items_summary,
+    )
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            async with client.stream("POST", f"{base_url}/api/generate", json=payload) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if line:
+                        try:
+                            # Ollama returns one JSON object per line when stream=True
+                            data = json.loads(line)
+                            chunk = data.get("response", "")
+                            if chunk:
+                                # yield SSE format
+                                yield f"data: {json.dumps({'text': chunk})}\n\n"
+                        except json.JSONDecodeError:
+                            pass
+        except Exception as e:
+             yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    yield "data: [DONE]\n\n"
+
 def generate_basic_report(
     compare_result: dict,
     hostname: str,

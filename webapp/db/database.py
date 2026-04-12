@@ -57,20 +57,32 @@ def init_db():
 
 def save_template(name: str, hostname_regex: str, description: str,
                   golden_items: list, golden_parsed: dict, os_type: str = 'iosxe', 
-                  conditional_rules: list = None) -> str:
-    tid = str(uuid.uuid4())
+                  conditional_rules: list = None, template_id: str = None) -> str:
+    tid = template_id if template_id else str(uuid.uuid4())
     if conditional_rules is None:
         conditional_rules = []
     with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO templates (id, name, hostname_regex, description, os, "
-            "golden_items, conditional_rules, golden_parsed, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (tid, name, hostname_regex, description, os_type,
-             json.dumps(golden_items, ensure_ascii=False),
-             json.dumps(conditional_rules, ensure_ascii=False),
-             json.dumps(golden_parsed, ensure_ascii=False),
-             datetime.utcnow().isoformat())
-        )
+        if template_id:
+            conn.execute(
+                "UPDATE templates SET name=?, hostname_regex=?, description=?, os=?, "
+                "golden_items=?, conditional_rules=?, golden_parsed=? "
+                "WHERE id=?",
+                (name, hostname_regex, description, os_type,
+                 json.dumps(golden_items, ensure_ascii=False),
+                 json.dumps(conditional_rules, ensure_ascii=False),
+                 json.dumps(golden_parsed, ensure_ascii=False),
+                 tid)
+            )
+        else:
+            conn.execute(
+                "INSERT INTO templates (id, name, hostname_regex, description, os, "
+                "golden_items, conditional_rules, golden_parsed, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (tid, name, hostname_regex, description, os_type,
+                 json.dumps(golden_items, ensure_ascii=False),
+                 json.dumps(conditional_rules, ensure_ascii=False),
+                 json.dumps(golden_parsed, ensure_ascii=False),
+                 datetime.utcnow().isoformat())
+            )
     return tid
 
 
@@ -147,6 +159,10 @@ def get_compare_result(rid: str) -> dict | None:
     d["detail"] = json.loads(d["detail"])
     return d
 
+def delete_compare_result(rid: str):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM compare_results WHERE id=?", (rid,))
+
 
 # ── Settings ───────────────────────────────────────────────────────────
 
@@ -165,3 +181,13 @@ def set_setting(key: str, value: str):
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value)
         )
+
+# ── Backup & Reset ─────────────────────────────────────────────────────
+
+def reset_db_data():
+    """DB 초기화: 데이터 삭제 (사용자 설정 외 모든 결과/템플릿 삭제)"""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM compare_results")
+        conn.execute("DELETE FROM templates")
+        # settings는 유지 또는 초기화할 수 있지만, 기본적으로 data.db 자체를 핸들링하는 것으로 가능.
+

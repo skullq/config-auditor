@@ -12,7 +12,15 @@ def _match_value(expected: Any, actual: Any, match_type: str) -> bool:
     if match_type == "exists":
         return actual not in (None, "", [], {})
     if match_type == "exact":
-        return str(expected).strip() == str(actual).strip()
+        exp_str = str(expected).strip()
+        act_str = str(actual).strip()
+        if exp_str == act_str:
+            return True
+        if '\n' in act_str:
+            for line in act_str.splitlines():
+                if exp_str == line.strip():
+                    return True
+        return False
     if match_type == "regex":
         try:
             return bool(re.search(str(expected), str(actual)))
@@ -94,7 +102,16 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
             sub_path = '.'.join(item_id.split('.')[1:])
             actual_value = _get_nested(target_entry["genie"], sub_path)
         elif source == "raw" and "raw" in target_entry:
-            actual_value = '\n'.join(target_entry["raw"])
+            parent_hdr = item.get("parent_header")
+            if parent_hdr:
+                target_block = None
+                for block in target_entry["raw"]:
+                    if block.startswith(parent_hdr):
+                        target_block = block
+                        break
+                actual_value = target_block
+            else:
+                actual_value = '\n'.join(target_entry["raw"])
 
         matched = _match_value(expected, actual_value, match_type)
 

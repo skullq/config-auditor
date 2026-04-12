@@ -18,11 +18,10 @@ SKIP_RE = re.compile(
     r'|\s*quit\s*$'
 )
 
-# 2단어로 식별해야 의미가 생기는 첫 단어 목록
 TWO_WORD_PREFIXES = {
-    'router', 'ip', 'ipv6', 'crypto', 'no', 'vrf',
+    'router', 'ip', 'ipv4', 'ipv6', 'crypto', 'no', 'vrf',
     'spanning-tree', 'line', 'snmp-server', 'ntp',
-    'logging', 'aaa', 'username', 'boot',
+    'logging', 'username', 'boot',
 }
 
 
@@ -53,13 +52,33 @@ def auto_split_sections(config: str) -> dict:
         current_lines = []
         current_key = None
 
+    acl_mode = False
+
     for line in config.splitlines():
         if SKIP_RE.match(line):
+            if line.strip() == '!':
+                acl_mode = False
             continue
-        if not line.startswith((' ', '\t')):
+            
+        is_indented = line.startswith((' ', '\t'))
+        stripped = line.strip()
+
+        is_acl_seq = False
+        if acl_mode and not is_indented:
+            # Check if line looks like an ACL sequence inside an ACL context
+            if re.match(r'^(\d+\s+)?(permit|deny|remark)\s+', stripped, re.I):
+                is_acl_seq = True
+
+        if not is_indented and not is_acl_seq:
             flush()
             current_key = get_section_key(line)
             current_lines = [line]
+            
+            # ACL block detection
+            if current_key in ('ip access-list', 'ipv4 access-list', 'ipv6 access-list', 'mac access-list', 'access-list'):
+                acl_mode = True
+            else:
+                acl_mode = False
         else:
             if current_key is not None:
                 current_lines.append(line)
@@ -141,7 +160,7 @@ def _load_parsers_for_os(os_type: str) -> dict:
     
     # OS별 파서 클래스 이름 매핑 (일반적으로 ShowRunInterface 등은 기능적으로 유사)
     parser_classes = {
-        'interface': 'ShowRunInterface',
+        # 'interface': 'ShowRunInterface',  # 인터페이스 파편화 방지를 위해 RAW 분석으로 우회
         'vrf definition': 'ShowRunningConfigVrf',
         'ip route': 'ShowRunRoute',
         'nve': 'ShowRunningConfigNve',
@@ -243,14 +262,32 @@ def flatten_for_ui(parsed: dict) -> list[dict]:
         else:
             # raw 섹션: 각 블록을 하나의 항목으로
             for i, block in enumerate(raw_blocks):
-                first_line = block.splitlines()[0] if block else section_key
-                items.append({
-                    "id": f"{section_key}.raw.{i}",
-                    "section": section_key,
-                    "label": first_line,
-                    "value": block,
-                    "source": "raw",
-                    "raw_block": block,
-                })
+                lines = block.splitlines()
+                first_line = lines[0] if lines else section_key
+                
+                # RAW 블록 중 세부 설정(들여쓰기)이 있는 구조 분할 (인터페이스, ACL 등 파편화 방지)
+                if len(lines) > 1 and section_key not in ('banner', 'certificate'):
+                    header = first_line
+                    for j, line in enumerate(lines[1:], start=1):
+                        if not line.strip(): continue
+                        items.append({
+                            "id": f"{section_key}.raw.{i}.{j}",
+                            "section": section_key,
+                            "label": line.strip(),
+                            "value": line.strip(),
+                            "source": "raw",
+                            "raw_block": line.strip(),
+                            "parent_header": header
+                        })
+                else:
+                    items.append({
+                        "id": f"{section_key}.raw.{i}",
+                        "section": section_key,
+                        "label": first_line,
+                        "value": block,
+                        "source": "raw",
+                        "raw_block": block,
+                        "parent_header": first_line
+                    })
 
     return items

@@ -53,7 +53,7 @@ uv venv
 source .venv/bin/activate  # 또는 .venv\Scripts\activate
 
 # 2. 패키지 설치
-uv pip install -r webapp/requirements.txt
+uv pip install -r requirements.txt
 
 # 3. 서버 실행
 cd webapp

@@ -7,35 +7,9 @@ export function initSettings() {
   document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
   document.getElementById('settings-test-btn').addEventListener('click', testOllama);
   document.getElementById('settings-model-refresh').addEventListener('click', loadModels);
+  document.getElementById('settings-wipe-btn').addEventListener('click', wipeDatabase);
 }
 
-export function initReport() {
-  // 다른 탭에서 레포트 이벤트 수신
-  window.addEventListener('show-report', e => {
-    renderReport(e.detail.report, e.detail.hostname);
-  });
-
-  document.getElementById('report-copy-btn').addEventListener('click', () => {
-    const text = document.getElementById('report-output').textContent;
-    copyToClipboard(text);
-  });
-
-  document.getElementById('report-download-btn').addEventListener('click', () => {
-    const text = document.getElementById('report-output').textContent;
-    const hostname = document.getElementById('report-hostname').textContent;
-    const blob = new Blob([text], { type: 'text/markdown' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `audit_${hostname || 'report'}.md`;
-    a.click();
-  });
-}
-
-function renderReport(markdown, hostname) {
-  document.getElementById('report-hostname').textContent = hostname || '';
-  document.getElementById('report-output').textContent = markdown;
-  document.getElementById('report-actions').style.display = 'flex';
-}
 
 async function loadSettings() {
   try {
@@ -94,5 +68,17 @@ async function saveSettings() {
     toast('설정 저장 완료', 'success');
   } catch (err) {
     toast(`저장 실패: ${err.message}`, 'error');
+  }
+}
+
+async function wipeDatabase() {
+  if (!confirm('정말 모든 데이터(골든 템플릿, 비교 이력)를 삭제하시겠습니까? (설정 제외) 이 작업은 되돌릴 수 없습니다.')) return;
+  
+  try {
+    const res = await api('/api/settings/reset', { method: 'POST' });
+    toast(res.message, 'success');
+    window.location.reload(); // Refresh to clean states
+  } catch (err) {
+    toast(`초기화 실패: ${err.message}`, 'error');
   }
 }

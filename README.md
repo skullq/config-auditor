@@ -53,7 +53,7 @@ uv venv
 source .venv/bin/activate  # or .venv\Scripts\activate
 
 # 2. Install packages
-uv pip install -r webapp/requirements.txt
+uv pip install -r requirements.txt
 
 # 3. Run server
 cd webapp
@@ -67,8 +67,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 # Install required packages
-cd webapp
-pip install -r requirements.txt
+spip install -r requirements.txt
 
 # Run server
 uvicorn main:app --host 0.0.0.0 --port 8000
