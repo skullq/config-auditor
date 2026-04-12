@@ -52,16 +52,64 @@ def auto_split_sections(config: str) -> dict:
         current_lines = []
         current_key = None
 
+    banner_mode = False
+    banner_delimiter = ''
+    mergeable_sections = {'feature', 'ip route', 'ipv4 route', 'ipv6 route', 'service', 'ntp', 'spanning-tree', 'snmp-server'}
     acl_mode = False
 
     for line in config.splitlines():
+        stripped = line.strip()
+        is_indented = line.startswith((' ', '\t'))
+
+        # ── Banner Mode 하위 라인 처리 (SKIP_RE보다 우선) ──
+        if banner_mode:
+            current_lines.append(line)
+            # 종료 조건: 구분자가 포함되어 있거나 (보통 줄 끝에 옴), 
+            # 안전장치: 구분자를 못 찾았더라도 새로운 주요 섹션이 시작되면 종료
+            is_new_section = not is_indented and any(stripped.startswith(p) for p in ['interface ', 'router ', 'line ', 'ip route', 'snmp-server', 'username '])
+            if (banner_delimiter and banner_delimiter in line) or is_new_section:
+                if is_new_section:
+                    # 새로운 섹션 줄은 현재 배너에서 제외하고 다음 루프에서 처리하도록 함
+                    current_lines.pop()
+                    banner_mode = False
+                    flush()
+                    # 이 줄을 다시 처리하기 위해 continue가 아닌 로직 흐름 유지 필요
+                    # 여기서는 그냥 루프를 다시 돌릴 수 없으므로, 일단 flush하고 current_lines를 이 줄로 세팅
+                    current_key = get_section_key(line)
+                    current_lines = [line]
+                    if current_key in ('ip access-list', 'access-list'): acl_mode = True
+                else:
+                    banner_mode = False
+                    flush()
+            continue
+
         if SKIP_RE.match(line):
-            if line.strip() == '!':
+            if stripped == '!':
                 acl_mode = False
             continue
             
-        is_indented = line.startswith((' ', '\t'))
-        stripped = line.strip()
+        # ── Banner 시작 감지 ──
+        if stripped.startswith('banner '):
+            flush()
+            # Cisco banner [motd|login] <delim> <text> <delim>
+            parts = stripped.split()
+            if len(parts) >= 2:
+                # 'motd' 또는 'login' 다음 위치 찾기
+                idx = line.find(parts[1])
+                if idx != -1:
+                    remaining = line[idx + len(parts[1]):].lstrip()
+                    if remaining:
+                        delim = remaining[0]
+                        banner_delimiter = delim
+                        banner_mode = True
+                        current_key = 'banner'
+                        current_lines = [line]
+                        
+                        # 시작 줄에 종료 구분자가 하나 더 있으면 한 줄짜리 배너
+                        if remaining[1:].find(delim) != -1:
+                            banner_mode = False
+                            flush()
+                        continue
 
         is_acl_seq = False
         if acl_mode and not is_indented:
@@ -70,9 +118,15 @@ def auto_split_sections(config: str) -> dict:
                 is_acl_seq = True
 
         if not is_indented and not is_acl_seq:
-            flush()
-            current_key = get_section_key(line)
-            current_lines = [line]
+            new_key = get_section_key(line)
+            
+            # 머지 가능한 섹션이고 이전과 동일한 키라면 flush 하지 않고 합침
+            if current_key in mergeable_sections and new_key == current_key:
+                current_lines.append(line)
+            else:
+                flush()
+                current_key = new_key
+                current_lines = [line]
             
             # ACL block detection
             if current_key in ('ip access-list', 'ipv4 access-list', 'ipv6 access-list', 'mac access-list', 'access-list'):
@@ -266,19 +320,32 @@ def flatten_for_ui(parsed: dict) -> list[dict]:
                 first_line = lines[0] if lines else section_key
                 
                 # RAW 블록 중 세부 설정(들여쓰기)이 있는 구조 분할 (인터페이스, ACL 등 파편화 방지)
+                # 단, 'feature', 'ip route' 같은 단순 나열형 섹션은 개별 줄을 각각 항목으로 취급
                 if len(lines) > 1 and section_key not in ('banner', 'certificate'):
-                    header = first_line
-                    for j, line in enumerate(lines[1:], start=1):
-                        if not line.strip(): continue
-                        items.append({
-                            "id": f"{section_key}.raw.{i}.{j}",
-                            "section": section_key,
-                            "label": line.strip(),
-                            "value": line.strip(),
-                            "source": "raw",
-                            "raw_block": line.strip(),
-                            "parent_header": header
-                        })
+                    if section_key in ('feature', 'ip route', 'ipv4 route', 'ipv6 route', 'service', 'ntp', 'spanning-tree', 'snmp-server'):
+                        for j, line in enumerate(lines):
+                            items.append({
+                                "id": f"{section_key}.raw.{i}.{j}",
+                                "section": section_key,
+                                "label": line.strip(),
+                                "value": line.strip(),
+                                "source": "raw",
+                                "raw_block": line.strip(),
+                                "parent_header": section_key # 'feature' 자체를 헤더로 사용
+                            })
+                    else:
+                        header = first_line
+                        for j, line in enumerate(lines[1:], start=1):
+                            if not line.strip(): continue
+                            items.append({
+                                "id": f"{section_key}.raw.{i}.{j}",
+                                "section": section_key,
+                                "label": line.strip(),
+                                "value": line.strip(),
+                                "source": "raw",
+                                "raw_block": line.strip(),
+                                "parent_header": header
+                            })
                 else:
                     items.append({
                         "id": f"{section_key}.raw.{i}",

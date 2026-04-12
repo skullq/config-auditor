@@ -7,28 +7,99 @@ import re
 from typing import Any
 
 
-def _match_value(expected: Any, actual: Any, match_type: str) -> bool:
-    """단일 값 비교."""
+def _normalize_banner(text: str) -> str:
+    """Cisco 배너의 시작/종료 구분자 및 불필요한 공백 제거."""
+    if not text:
+        return ""
+    lines = text.strip().splitlines()
+    if not lines:
+        return ""
+    
+    # 첫 줄에서 'banner motd ^C' 또는 'banner login ^C' 등의 명령어 부분 제거 시도
+    first_line = lines[0].strip()
+    if first_line.lower().startswith('banner '):
+        # 'banner motd ' 이후의 구분자 추출 시도
+        parts = first_line.split()
+        if len(parts) >= 3:
+            # 'banner motd ^' -> '^' 이후의 텍스트만 남김
+            idx = first_line.find(parts[1]) + len(parts[1])
+            content_start = first_line[idx:].lstrip()
+            if content_start:
+                delim = content_start[0]
+                lines[0] = content_start.lstrip(delim).strip()
+    
+    # 마지막 줄에서 종료 구분자 제거 시도
+    if lines:
+        last_line = lines[-1].strip()
+        if last_line and (len(last_line) == 1 or last_line.endswith('^C')):
+             # 보통 구분자 혼자 있거나 ^C 로 끝남
+             lines[-1] = last_line.rstrip('^C').strip()
+    
+    return "\n".join(l.strip() for l in lines if l.strip())
+
+
+def _match_value(expected: Any, actual_value: Any, match_type: str, section: str = "") -> tuple[bool, str]:
+    """
+    값 비교 및 UI에 표시할 실제 값(display_actual) 반환.
+    """
+    exp_str = str(expected).strip()
+    act_full = str(actual_value) if actual_value is not None else ""
+    
+    if not act_full:
+        return (False, "(없음)")
+
+    # ── 배너 특수 처리 ──
+    if section == "banner":
+        norm_exp = _normalize_banner(exp_str)
+        norm_act = _normalize_banner(act_full)
+        if norm_exp == norm_act:
+            return (True, "(배너 일치)")
+        if norm_exp in norm_act:
+            return (True, "(배너 내용 포함)")
+        # 불일치 시 요약 표시
+        return (False, act_full.splitlines()[1] if len(act_full.splitlines()) > 1 else act_full)
+
+    # 멀티라인 블록인 경우 줄 단위 분석
+    lines = [l.strip() for l in act_full.splitlines()]
+    
     if match_type == "exists":
-        return actual not in (None, "", [], {})
+        if exp_str:
+            for line in lines:
+                if exp_str in line:
+                    return (True, line)
+            return (False, "(불일치/미발견)")
+        return (True, "(존재함)")
+
     if match_type == "exact":
-        exp_str = str(expected).strip()
-        act_str = str(actual).strip()
-        if exp_str == act_str:
-            return True
-        if '\n' in act_str:
-            for line in act_str.splitlines():
-                if exp_str == line.strip():
-                    return True
-        return False
+        if exp_str in lines:
+            return (True, exp_str)
+        if exp_str == act_full.strip():
+            return (True, act_full.strip())
+        return (False, act_full.splitlines()[0] + "..." if len(lines) > 1 else act_full)
+
     if match_type == "regex":
         try:
-            return bool(re.search(str(expected), str(actual)))
+            pattern = re.compile(exp_str)
+            for line in lines:
+                if pattern.search(line):
+                    return (True, line)
+            if pattern.search(act_full):
+                return (True, "(전체 매칭됨)")
+            return (False, "(미일치)")
         except re.error:
-            return False
+            return (False, "(Regex 에러)")
+
     if match_type == "contains":
-        return str(expected) in str(actual)
-    return str(expected) == str(actual)
+        for line in lines:
+            if exp_str in line:
+                return (True, line)
+        if exp_str in act_full:
+            return (True, "(블록 내 포함)")
+        return (False, act_full.splitlines()[0] + "..." if len(lines) > 1 else act_full)
+
+    # 기본값 (평문 비교)
+    matched = exp_str == act_full.strip()
+    return (matched, act_full if matched else (act_full.splitlines()[0] + "..." if len(lines) > 1 else act_full))
 
 
 def _get_nested(data: dict, path: str) -> Any:
@@ -101,19 +172,46 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
         if source == "genie" and "genie" in target_entry:
             sub_path = '.'.join(item_id.split('.')[1:])
             actual_value = _get_nested(target_entry["genie"], sub_path)
+            matched, display_actual = _match_value(expected, actual_value, match_type, section)
         elif source == "raw" and "raw" in target_entry:
+            intf_type = item.get("intf_type")
             parent_hdr = item.get("parent_header")
-            if parent_hdr:
+            
+            # 1. L2 인터페이스 특수 처리 (인터페이스 이름 무관)
+            if intf_type == "l2":
+                found_match = False
+                all_l2_actuals = []
+                for block in target_entry["raw"]:
+                    if "switchport" in block.lower():
+                        m, disp = _match_value(expected, block, match_type, section)
+                        if m:
+                            found_match = True
+                            display_actual = disp
+                            break
+                        all_l2_actuals.append(disp)
+                
+                matched = found_match
+                if not matched:
+                    display_actual = "(L2 포트 중 미일치)" if all_l2_actuals else "(L2 포트 없음)"
+            
+            # 2. 일반 병합 섹션 (feature, ip route, banner 등)
+            elif not parent_hdr or parent_hdr == section:
+                all_raw = '\n'.join(target_entry["raw"])
+                matched, display_actual = _match_value(expected, all_raw, match_type, section)
+            
+            # 3. 특정 헤더 기반 (Uplink 인터페이스, ACL 등)
+            elif parent_hdr:
                 target_block = None
                 for block in target_entry["raw"]:
                     if block.startswith(parent_hdr):
                         target_block = block
                         break
-                actual_value = target_block
+                matched, display_actual = _match_value(expected, target_block, match_type, section)
             else:
-                actual_value = '\n'.join(target_entry["raw"])
-
-        matched = _match_value(expected, actual_value, match_type)
+                all_raw = '\n'.join(target_entry["raw"])
+                matched, display_actual = _match_value(expected, all_raw, match_type, section)
+        else:
+            matched, display_actual = _match_value(expected, None, match_type, section)
 
         if matched:
             status = "pass"
@@ -134,7 +232,7 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
             "section": section,
             "status": status,
             "expected": str(expected),
-            "actual": str(actual_value) if actual_value is not None else "(없음)",
+            "actual": display_actual,
             "message": message,
             "is_conditional": is_cond,
             "condition_regex": item.get("condition_regex")

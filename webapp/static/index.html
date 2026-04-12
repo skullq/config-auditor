@@ -39,7 +39,7 @@
 
     <!-- 파일 업로드 -->
     <div class="card">
-      <div class="card-title">📁 골든 설정 파일 업로드</div>
+      <div class="card-title">📁 골든 설정 파일 업로드 <span style="font-size:12px;font-weight:normal;color:var(--text-secondary)">(인터페이스 섹션 제외 — 일반 정책 설정)</span></div>
       <div class="form-group mb-3">
         <label class="form-label">OS 타입 선택</label>
         <select id="golden-os-select" class="form-select">
@@ -56,6 +56,39 @@
         <div class="drop-icon">📁</div>
         <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
         <p>Cisco IOS / IOS-XE 설정 파일 (.cfg, .txt, .conf)</p>
+      </div>
+    </div>
+
+    <!-- 인터페이스 전용 업로드 -->
+    <div class="card">
+      <div class="card-title">🔌 인터페이스 골든 설정 업로드 <span style="font-size:12px;font-weight:normal;color:var(--text-secondary)">(업링크/L2 자동 분류)</span></div>
+      <p class="text-muted mb-3" style="font-size:12px">
+        인터페이스 설정이 포함된 파일을 업로드합니다.<br>
+        <strong>업링크</strong> (Vlan/Loopback/routed port): 인터페이스 번호 + 옵션 모두 검증 (IP는 optional)<br>
+        <strong>L2 포트</strong> (switchport 있는 포트): 옵션(설정 내용) 기준으로만 검증, 포트 번호 무관
+      </p>
+      <div class="drop-zone" id="golden-intf-drop-zone" style="border-color:var(--accent); min-height:100px;">
+        <input type="file" id="golden-intf-file-input" accept=".cfg,.txt,.conf">
+        <div class="drop-icon">🔌</div>
+        <h3>인터페이스 설정 파일을 드래그하거나 클릭하여 업로드</h3>
+        <p>동일 파일 또는 별도의 인터페이스 설정 파일 가능</p>
+      </div>
+      <!-- 인터페이스 파싱 결과 요약 -->
+      <div id="golden-intf-summary" style="display:none; margin-top:12px;">
+        <div class="flex gap-3" style="flex-wrap:wrap;">
+          <div class="card" style="flex:1;min-width:120px;padding:12px;background:var(--bg-secondary);">
+            <div style="font-size:22px;font-weight:800;" id="intf-total-count">0</div>
+            <div style="font-size:12px;color:var(--text-secondary)">전체 인터페이스</div>
+          </div>
+          <div class="card" style="flex:1;min-width:120px;padding:12px;background:var(--bg-secondary);">
+            <div style="font-size:22px;font-weight:800;color:var(--success);" id="intf-uplink-count">0</div>
+            <div style="font-size:12px;color:var(--text-secondary)">업링크 (L3/논리)</div>
+          </div>
+          <div class="card" style="flex:1;min-width:120px;padding:12px;background:var(--bg-secondary);">
+            <div style="font-size:22px;font-weight:800;color:var(--info);" id="intf-l2-count">0</div>
+            <div style="font-size:12px;color:var(--text-secondary)">L2 포트</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -308,11 +341,11 @@
 
 <script type="module">
   // 캐시 우회를 위해 버전 쿼리 추가
-  import { initTabs, toast } from '/static/js/app.js?v=4';
-  import { initGolden } from '/static/js/golden.js?v=4';
-  import { initCompare } from '/static/js/compare.js?v=4';
-  import { initSettings } from '/static/js/settings.js?v=4';
-  import { initReport } from '/static/js/report.js?v=4';
+  import { initTabs, toast } from '/static/js/app.js?v=6';
+  import { initGolden } from '/static/js/golden.js?v=6';
+  import { initCompare } from '/static/js/compare.js?v=6';
+  import { initSettings } from '/static/js/settings.js?v=6';
+  import { initReport } from '/static/js/report.js?v=6';
 
   window.appToast = toast; // expose globally for inline use
 

@@ -2,10 +2,11 @@
 
 import { api, uploadFile, initDropZone, setLoading, toast } from './app.js';
 
-let parsedData = null;   // 서버에서 받은 파싱 결과
-let allItems = [];       // flatten_for_ui 결과
-let conditionalRules = []; // [{ hostname_regex, items: [{id, section, label, value, match_type, weight}] }]
-let filterSection = '';  // 현재 필터 섹션
+let parsedData = null;   // 서버에서 받은 파싱 결과 (인터페이스 제외)
+let allItems = [];       // 일반 설정 항목 (flatten_for_ui, 인터페이스 제외)
+let intfItems = [];      // 인터페이스 전용 항목 (업링크 + L2)
+let conditionalRules = [];
+let filterSection = '';
 let currentEditingId = null;
 
 export function initGolden() {
@@ -18,6 +19,13 @@ export function initGolden() {
   const addRuleBtn = document.getElementById('golden-add-rule-btn');
 
   initDropZone(zone, input, files => handleGoldenUpload(files[0]));
+
+  // 인터페이스 전용 드롭존
+  const intfZone  = document.getElementById('golden-intf-drop-zone');
+  const intfInput = document.getElementById('golden-intf-file-input');
+  if (intfZone && intfInput) {
+    initDropZone(intfZone, intfInput, files => handleIntfUpload(files[0]));
+  }
 
   saveBtn.addEventListener('click', saveTemplate);
   cancelBtn.addEventListener('click', () => {
@@ -43,6 +51,8 @@ export function initGolden() {
   });
 }
 
+// ── 일반 골든 설정 업로드 (인터페이스 제외) ──────────────────────────
+
 async function handleGoldenUpload(file) {
   const zone = document.getElementById('golden-drop-zone');
   const osType = document.getElementById('golden-os-select').value;
@@ -55,14 +65,14 @@ async function handleGoldenUpload(file) {
     allItems = data.items.map(item => ({
       ...item,
       selected: true,
-      match_type: item.source === 'genie' ? 'exact' : 'contains',
-      weight: 'required',
+      match_type: item.match_type || (item.source === 'genie' ? 'exact' : 'contains'),
+      weight: item.weight || 'required',
       expected_value: item.value,
     }));
 
     document.getElementById('golden-hostname').textContent = data.hostname || '(알 수 없음)';
     document.getElementById('golden-section-count').textContent = data.section_count;
-    document.getElementById('golden-item-count').textContent = allItems.length;
+    document.getElementById('golden-item-count').textContent = allItems.length + intfItems.length;
     document.getElementById('golden-results-area').style.display = 'block';
 
     buildSectionFilters();
@@ -71,24 +81,66 @@ async function handleGoldenUpload(file) {
     zone.innerHTML = `
       <div class="drop-icon">✅</div>
       <h3>${file.name}</h3>
-      <p>분석 완료 — 다른 파일을 올리려면 클릭</p>
+      <p>분석 완료 (인터페이스 섹션 제외) — 다른 파일을 올리려면 클릭</p>
     `;
   } catch (err) {
     zone.innerHTML = `
       <div class="drop-icon">📁</div>
       <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
-      <p>Cisco IOS / IOS-XE .cfg 파일 지원</p>
+      <p>Cisco IOS / IOS-XE 설정 파일 (.cfg, .txt, .conf)</p>
     `;
     toast(`업로드 실패: ${err.message}`, 'error');
   }
 }
 
+// ── 인터페이스 전용 업로드 ───────────────────────────────────────────
+
+async function handleIntfUpload(file) {
+  const zone = document.getElementById('golden-intf-drop-zone');
+  zone.innerHTML = `<div class="loading-overlay"><div class="spinner"></div><span>인터페이스 분석 중...</span></div>`;
+  try {
+    const data = await uploadFile('/api/golden/upload-interface', file);
+    intfItems = data.items.map(item => ({
+      ...item,
+      selected: true,
+      expected_value: item.value,
+    }));
+
+    document.getElementById('intf-total-count').textContent = data.total;
+    document.getElementById('intf-uplink-count').textContent = data.uplink_count;
+    document.getElementById('intf-l2-count').textContent = data.l2_count;
+    document.getElementById('golden-intf-summary').style.display = 'block';
+    document.getElementById('golden-item-count').textContent = allItems.length + intfItems.length;
+    document.getElementById('golden-results-area').style.display = 'block';
+
+    buildSectionFilters();
+    renderItems();
+
+    zone.innerHTML = `
+      <div class="drop-icon">✅</div>
+      <h3>${file.name}</h3>
+      <p>인터페이스 분석 완료: 업링크 ${data.uplink_count}개 / L2 ${data.l2_count}개 — 클릭하여 재업로드</p>
+    `;
+    toast(`인터페이스 분석 완료: 총 ${data.total}개 (업링크 ${data.uplink_count} / L2 ${data.l2_count})`, 'success');
+  } catch (err) {
+    zone.innerHTML = `
+      <div class="drop-icon">🔌</div>
+      <h3>인터페이스 설정 파일을 드래그하거나 클릭하여 업로드</h3>
+      <p>동일 파일 또는 별도의 인터페이스 설정 파일 가능</p>
+    `;
+    toast(`인터페이스 업로드 실패: ${err.message}`, 'error');
+  }
+}
+
+// ── 섹션 필터 빌드 ──────────────────────────────────────────────────
+
 function buildSectionFilters() {
-  const sections = [...new Set(allItems.map(i => i.section))].sort();
+  const combined = [...allItems, ...intfItems];
+  const sections = [...new Set(combined.map(i => i.section))].sort();
   const container = document.getElementById('golden-section-filters');
-  container.innerHTML = `<button class="filter-btn active" data-section="">전체 (${allItems.length})</button>`;
+  container.innerHTML = `<button class="filter-btn active" data-section="">전체 (${combined.length})</button>`;
   sections.forEach(s => {
-    const count = allItems.filter(i => i.section === s).length;
+    const count = combined.filter(i => i.section === s).length;
     const btn = document.createElement('button');
     btn.className = 'filter-btn';
     btn.dataset.section = s;
@@ -97,17 +149,20 @@ function buildSectionFilters() {
   });
 }
 
+// ── 항목 렌더링 ─────────────────────────────────────────────────────
+
 function renderItems() {
   const list = document.getElementById('golden-items-list');
+  const combined = [...allItems, ...intfItems];
   const filtered = filterSection
-    ? allItems.filter(i => i.section === filterSection)
-    : allItems;
+    ? combined.filter(i => i.section === filterSection)
+    : combined;
 
-  // 섹션별 그룹핑 개선
+  // 섹션별 그룹핑
   const grouped = {};
   filtered.forEach(item => {
     let sec = item.section || '기타';
-    
+
     if (item.source === 'genie') {
       const parts = item.id.split('.');
       if (parts[0] === 'interface') {
@@ -118,17 +173,20 @@ function renderItems() {
         }
       }
     } else if (item.source === 'raw') {
-      const firstLine = (item.label || '').trim();
-      const firstWord = firstLine.split(' ')[0].toLowerCase();
-      
-      // Global config commands that should group together
-      if (['aaa', 'vtp', 'snmp-server', 'logging', 'spanning-tree', 'ntp', 'crypto', 'boot'].includes(firstWord)) {
-        sec = firstWord.toUpperCase();
-      } else if (item.parent_header) {
-        sec = item.parent_header;
+      // 인터페이스 항목은 section이 이미 'interface (uplink)' or 'interface (L2)' 로 설정됨
+      if (sec.startsWith('interface (')) {
+        // 업링크는 parent_header 기준으로 세부 그룹
+        if (item.intf_type === 'uplink' && item.parent_header) {
+          sec = item.parent_header;
+        }
+        // L2는 섹션명 유지
       } else {
-        if (firstLine.startsWith('interface ')) {
-          sec = firstLine;
+        const firstLine = (item.label || '').trim();
+        const firstWord = firstLine.split(' ')[0].toLowerCase();
+        if (['aaa', 'vtp', 'snmp-server', 'logging', 'spanning-tree', 'ntp', 'crypto', 'boot', 'feature'].includes(firstWord)) {
+          sec = firstWord.toUpperCase();
+        } else if (item.parent_header) {
+          sec = item.parent_header;
         }
       }
     }
@@ -138,17 +196,22 @@ function renderItems() {
   });
 
   const htmlParts = [];
-  
+
   Object.keys(grouped).sort().forEach(sec => {
+    const isUplink = sec.startsWith('interface ') && !sec.startsWith('interface (L2');
+    const isL2 = sec.startsWith('interface (L2');
+    const sectionIcon = isUplink ? '🔗' : isL2 ? '🔀' : '📂';
+    const sectionHint = isUplink ? ' [업링크 — 번호+옵션 검증]' : isL2 ? ' [L2 — 옵션 기준 검증]' : '';
+
     htmlParts.push(`
       <div class="section-group-header" style="background:var(--bg-secondary); padding:8px 12px; margin-top:12px; margin-bottom:4px; border-radius:6px; font-weight:bold; color:var(--accent); font-size:13px; display:flex; align-items:center; gap:8px; border-left: 3px solid var(--accent);">
-        <span style="font-size:16px;">📂</span> ${sec.toUpperCase()} <span style="color:var(--text-muted); font-size:11px; font-weight:normal;">(${grouped[sec].length}개 항목)</span>
+        <span style="font-size:16px;">${sectionIcon}</span> ${sec.toUpperCase()}${sectionHint} <span style="color:var(--text-muted); font-size:11px; font-weight:normal;">(${grouped[sec].length}개 항목)</span>
       </div>
     `);
-    
+
     grouped[sec].forEach(item => {
-      const realIdx = allItems.indexOf(item);
-      
+      const realIdx = combined.indexOf(item);
+
       let displayLabel = item.label;
       if (item.source === 'genie') {
         const parts = item.id.split('.');
@@ -162,15 +225,29 @@ function renderItems() {
         }
       }
 
+      // 업링크 IP 옵션은 시각적으로 약하게 표시
+      const isIpOpt = item.intf_type === 'uplink' && item.match_type === 'exists';
+      
+      const valText = (item.expected_value !== undefined ? item.expected_value : (item.value || '')).toString();
+      const isMultiline = valText.includes('\n') || item.section === 'banner';
+
       htmlParts.push(`
-        <div class="item-row ${item.selected ? 'selected' : ''}" data-idx="${realIdx}" style="margin-left:14px;">
+        <div class="item-row ${item.selected ? 'selected' : ''} ${isMultiline ? 'multiline' : ''}" data-idx="${realIdx}" style="margin-left:14px;${isIpOpt ? 'opacity:0.65;' : ''}">
           <input type="checkbox" class="item-check" ${item.selected ? 'checked' : ''} data-idx="${realIdx}">
-          <span class="item-source ${item.source}">${item.source}</span>
+          <span class="item-source ${item.source}">${item.intf_type ? item.intf_type : item.source}</span>
           <span class="item-label" title="${item.label}">${displayLabel}</span>
-          <input type="text" class="item-expected-value" data-idx="${realIdx}" 
-                 value="${(item.expected_value !== undefined ? item.expected_value : (item.value || '')).toString().replace(/"/g, '&quot;')}" 
-                 title="원본: ${item.value}"
-                 style="flex:1; max-width:180px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:2px 6px;">
+          
+          ${isMultiline ? `
+            <textarea class="item-expected-value" data-idx="${realIdx}" 
+                      style="flex:1; max-width:350px; min-height:60px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:4px 6px; resize:vertical;"
+                      placeholder="기대값 입력...">${valText.replace(/"/g, '&quot;')}</textarea>
+          ` : `
+            <input type="text" class="item-expected-value" data-idx="${realIdx}" 
+                   value="${valText.replace(/"/g, '&quot;')}" 
+                   title="원본: ${item.value}"
+                   style="flex:1; max-width:180px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:2px 6px;">
+          `}
+          
           <div class="item-controls">
             <select class="item-match-type" data-idx="${realIdx}">
               <option value="exists"   ${item.match_type==='exists'   ? 'selected':''}>exists</option>
@@ -187,45 +264,42 @@ function renderItems() {
 
   list.innerHTML = htmlParts.join('');
 
-  // 체크박스 이벤트
+  // 이벤트 바인딩 — combined 배열 기준 idx 사용
   list.querySelectorAll('.item-check').forEach(cb => {
     cb.addEventListener('change', () => {
       const idx = +cb.dataset.idx;
-      allItems[idx].selected = cb.checked;
+      combined[idx].selected = cb.checked;
       cb.closest('.item-row').classList.toggle('selected', cb.checked);
     });
   });
 
-  // match_type 변경
   list.querySelectorAll('.item-match-type').forEach(sel => {
     sel.addEventListener('change', () => {
-      allItems[+sel.dataset.idx].match_type = sel.value;
+      combined[+sel.dataset.idx].match_type = sel.value;
     });
   });
 
-  // weight 토글
   list.querySelectorAll('.item-weight').forEach(btn => {
     btn.addEventListener('click', () => {
       const idx = +btn.dataset.idx;
-      allItems[idx].weight = allItems[idx].weight === 'required' ? 'optional' : 'required';
-      btn.className = `item-weight ${allItems[idx].weight}`;
-      btn.textContent = allItems[idx].weight;
+      combined[idx].weight = combined[idx].weight === 'required' ? 'optional' : 'required';
+      btn.className = `item-weight ${combined[idx].weight}`;
+      btn.textContent = combined[idx].weight;
     });
   });
 
-  // expected value 텍스트박스 입력 감지
   list.querySelectorAll('.item-expected-value').forEach(ipt => {
     ipt.addEventListener('input', () => {
-      const idx = +ipt.dataset.idx;
-      allItems[idx].expected_value = ipt.value;
+      combined[+ipt.dataset.idx].expected_value = ipt.value;
     });
   });
 }
 
 function toggleAll(checked) {
+  const combined = [...allItems, ...intfItems];
   const filtered = filterSection
-    ? allItems.filter(i => i.section === filterSection)
-    : allItems;
+    ? combined.filter(i => i.section === filterSection)
+    : combined;
   filtered.forEach(i => i.selected = checked);
   renderItems();
 }
@@ -234,7 +308,7 @@ function addConditionalRule() {
   const rule = {
     id: Date.now(),
     hostname_regex: '',
-    items: [] // 템플릿의 현재 선택된 항목들을 복사해서 조건부로 쓸 수도 있음
+    items: []
   };
   conditionalRules.push(rule);
   renderRules();
@@ -273,27 +347,27 @@ window.editTemplate = async (id) => {
         const res = await fetch(`/api/golden/templates/${id}`);
         if (!res.ok) throw new Error('템플릿을 불러오지 못했습니다.');
         const tpl = await res.json();
-        
+
         currentEditingId = tpl.id;
         document.getElementById('golden-template-name').value = tpl.name;
         document.getElementById('golden-hostname-regex').value = tpl.hostname_regex || '';
         document.getElementById('golden-description').value = tpl.description || '';
         document.getElementById('golden-os-select').value = tpl.os || 'iosxe';
-        
+
         conditionalRules = tpl.conditional_rules || [];
         renderRules();
-        
+
         parsedData = { parsed: tpl.golden_parsed, hostname: 'from template', items: [] };
-        // Use all saved golden items as all items.
-        // It's possible some UI items weren't saved, but for editing existing items it is sufficient.
-        allItems = tpl.golden_items;
+        // 저장된 항목을 인터페이스/일반으로 분리
+        allItems = tpl.golden_items.filter(i => !i.section?.startsWith('interface ('));
+        intfItems = tpl.golden_items.filter(i => i.section?.startsWith('interface ('));
         filterSection = '';
-        
+
         document.getElementById('golden-section-count').textContent = '?';
-        document.getElementById('golden-item-count').textContent = allItems.length;
+        document.getElementById('golden-item-count').textContent = allItems.length + intfItems.length;
         document.getElementById('golden-results-area').style.display = 'block';
         document.getElementById('golden-cancel-btn').style.display = 'inline-block';
-        
+
         buildSectionFilters();
         renderItems();
         toast('템플릿을 수정합니다.', 'info');
@@ -304,7 +378,8 @@ window.editTemplate = async (id) => {
 }
 
 async function saveTemplate() {
-  if (!parsedData && !allItems.length) return toast('먼저 설정 파일을 업로드하세요.', 'error');
+  const combined = [...allItems, ...intfItems];
+  if (!parsedData && combined.length === 0) return toast('먼저 설정 파일을 업로드하세요.', 'error');
 
   const name = document.getElementById('golden-template-name').value.trim();
   const regex = document.getElementById('golden-hostname-regex').value.trim();
@@ -312,7 +387,7 @@ async function saveTemplate() {
 
   if (!name) return toast('템플릿 이름을 입력하세요.', 'error');
 
-  const selectedItems = allItems.filter(i => i.selected);
+  const selectedItems = combined.filter(i => i.selected);
   if (selectedItems.length === 0) return toast('최소 1개 항목을 선택하세요.', 'error');
 
   const btn = document.getElementById('golden-save-btn');
@@ -321,22 +396,22 @@ async function saveTemplate() {
   const osType = document.getElementById('golden-os-select').value;
 
   try {
-    const res = await api('/api/golden/save', {
+    await api('/api/golden/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name, 
-        hostname_regex: regex, 
+        name,
+        hostname_regex: regex,
         description: desc,
         os_type: osType,
         selected_items: selectedItems,
         conditional_rules: conditionalRules,
-        golden_parsed: parsedData.parsed,
+        golden_parsed: parsedData?.parsed || {},
         template_id: currentEditingId,
       }),
     });
     toast(`골든 템플릿 "${name}" 저장 완료`, 'success');
-    
+
     // 상태 초기화
     document.getElementById('golden-template-name').value = '';
     document.getElementById('golden-hostname-regex').value = '';
@@ -345,10 +420,9 @@ async function saveTemplate() {
     currentEditingId = null;
     document.getElementById('golden-cancel-btn').style.display = 'none';
     document.getElementById('golden-conditional-container').innerHTML = '';
-    
-    // 탭 목록 갱신 트리거
+
     if (window.loadGoldenTemplates) {
-        window.loadGoldenTemplates();
+      window.loadGoldenTemplates();
     }
   } catch (err) {
     toast(`저장 실패: ${err.message}`, 'error');
