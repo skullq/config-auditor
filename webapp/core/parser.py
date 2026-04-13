@@ -114,7 +114,7 @@ def _get_parser_module_path(os_type: str) -> str:
     return mapping.get(os_type.lower(), 'genie.libs.parser.iosxe.show_run')
 
 def _load_parsers_for_os(os_type: str) -> dict:
-    """지정된 OS에 필요한 Genie 파서들을 로드."""
+    """지정된 OS에 필요한 Genie 파서들을 로드. 지원 범위 확장."""
     parsers = {}
     import importlib
     
@@ -123,9 +123,32 @@ def _load_parsers_for_os(os_type: str) -> dict:
         'all': ['ShowRunningConfig', 'ShowRun'],
         'line': ['ShowRunningConfigLine', 'ShowRunLine'],
         'interface': ['ShowRunInterface', 'ShowRunningConfigInterface'],
-        'vrf': ['ShowRunningConfigVrf', 'ShowRunSectionVrfDefinition'],
+        'vrf': ['ShowRunningConfigVrf', 'ShowRunSectionVrfDefinition', 'ShowRunVrf'],
         'route': ['ShowRunRoute'],
-        'bgp': ['ShowRunSectionBgp']
+        'bgp': ['ShowRunSectionBgp'],
+        # 사용 요청 대폭 확장
+        'aaa': ['ShowRunSectionAaa', 'ShowRunningConfigAAA'],
+        'snmp': ['ShowRunSectionSnmp', 'ShowRunningConfigSnmp'],
+        'ssh': ['ShowRunSectionSsh'],
+        'http': ['ShowRunSectionHttp'],
+        'ntp': ['ShowRunSectionNtp', 'ShowRunningConfigNtp'],
+        'clock': ['ShowRunClock'],
+        'acl': ['ShowRunAccessList', 'ShowRunningConfigAcl'],
+        'service': ['ShowRunSectionService'],
+        'hostname': ['ShowRunHostname'],
+        'domain': ['ShowRunDomainName'],
+        # Crypto 보안 파서 추가
+        'crypto_pki': ['ShowRunSectionCryptoPki'],
+        'crypto_map': ['ShowRunCryptoMap'],
+        'crypto_ikev2': ['ShowRunSectionCryptoIkev2'],
+        'crypto_isakmp': ['ShowRunSectionCryptoIsakmp'],
+        'crypto_ipsec': ['ShowRunSectionCryptoIpsec'],
+        # QoS 및 상세 ACL 파서 추가
+        'class_map': ['ShowRunSectionClassMap', 'ShowRunningConfigClassMap'],
+        'policy_map': ['ShowRunSectionPolicyMap', 'ShowRunningConfigPolicyMap'],
+        'table_map': ['ShowRunSectionTableMap'],
+        'ip_access_list': ['ShowIpAccessLists'],
+        'ipv6_access_list': ['ShowIpv6AccessLists']
     }
 
     try:
@@ -165,7 +188,7 @@ def parse_config(config_text: str, os_type: str = 'auto') -> dict:
         lines.append(line)
     cleaned_cfg = "\n".join(lines).strip()
 
-    # 2. Genie 분석
+    # 2. Genie 분석 (전체)
     global_genie = None
     if 'all' in os_parsers:
         try:
@@ -173,9 +196,36 @@ def parse_config(config_text: str, os_type: str = 'auto') -> dict:
             global_genie = parser_inst.parse(output=cleaned_cfg)
         except Exception: pass
 
-    # 개별 섹션 분석 (fallback)
+    # 개별 섹션 분석 (fallback 및 정밀 분석)
     raw_sections = auto_split_sections(config_text)
     result = {}
+    
+    # 섹션 키와 파서 키 매핑 테이블
+    section_parser_map = {
+        'interface': 'interface',
+        'line': 'line',
+        'vrf': 'vrf',
+        'aaa': 'aaa',
+        'snmp-server': 'snmp',
+        'ntp': 'ntp',
+        'ip http': 'http',
+        'ip ssh': 'ssh',
+        'clock': 'clock',
+        'access-list': 'acl',
+        'ip access-list': 'ip_access_list', # 상세 매핑
+        'ipv6 access-list': 'ipv6_access_list',
+        'service': 'service',
+        'hostname': 'hostname',
+        'ip domain': 'domain',
+        'router bgp': 'bgp',
+        # Crypto 섹션 매핑
+        'crypto pki': 'crypto_pki',
+        'crypto map': 'crypto_map',
+        'crypto ikev2': 'crypto_ikev2',
+        'crypto isakmp': 'crypto_isakmp',
+        'crypto ipsec': 'crypto_ipsec'
+    }
+
     for section_key, blocks in raw_sections.items():
         entry = {"raw": blocks}
         combined = '\n'.join(blocks)
