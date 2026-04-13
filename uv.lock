@@ -451,6 +451,7 @@ dependencies = [
     { name = "pyats" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "unicon" },
     { name = "uvicorn" },
 ]
 
@@ -463,6 +464,7 @@ requires-dist = [
     { name = "pyats" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "unicon", specifier = ">=26.3" },
     { name = "uvicorn" },
 ]
 

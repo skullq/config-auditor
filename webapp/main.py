@@ -51,34 +51,33 @@ async def root():
 
 @app.post("/api/golden/upload")
 async def golden_upload(file: UploadFile = File(...), os: str = "iosxe"):
-    """설정 파일 업로드 → Genie 분석 → UI 항목 목록 반환. 인터페이스 섹션은 제외."""
+    """설정 파일 업로드 → 단일 환경에서 전체(일반+인터페이스) 분석 수행."""
+    from core.interface_parser import parse_interfaces, flatten_interfaces_for_ui
     content = (await file.read()).decode("utf-8", errors="replace")
+    
+    # 1. 일반 설정 분석 (인터페이스 제외)
     parsed = parse_config(content, os_type=os)
-    ui_items = [i for i in flatten_for_ui(parsed) if not i.get("section", "").startswith("interface")]
+    general_items = [i for i in flatten_for_ui(parsed) if not i.get("section", "").startswith("interface")]
+    
+    # 2. 인터페이스 상세 분석
+    interfaces = parse_interfaces(content)
+    intf_items = flatten_interfaces_for_ui(interfaces)
+    
+    uplinks = [i for i in interfaces if i["type"] == "uplink"]
+    l2_ports = [i for i in interfaces if i["type"] == "l2"]
+
     return {
         "hostname": parsed.get("hostname"),
         "os": parsed.get("os"),
         "section_count": len(parsed.get("sections", {})),
-        "items": ui_items,
+        "general_items": general_items,
+        "intf_items": intf_items,
         "parsed": parsed,
-    }
-
-
-@app.post("/api/golden/upload-interface")
-async def golden_upload_interface(file: UploadFile = File(...), os: str = "auto"):
-    """인터페이스 전용 설정 파일 업로드 → 인터페이스 블록 파싱 → 업링크/L2 분류."""
-    from core.interface_parser import parse_interfaces, flatten_interfaces_for_ui
-    content = (await file.read()).decode("utf-8", errors="replace")
-    interfaces = parse_interfaces(content)
-    uplinks = [i for i in interfaces if i["type"] == "uplink"]
-    l2_ports = [i for i in interfaces if i["type"] == "l2"]
-    ui_items = flatten_interfaces_for_ui(interfaces)
-    return {
-        "total": len(interfaces),
-        "uplink_count": len(uplinks),
-        "l2_count": len(l2_ports),
-        "interfaces": interfaces,
-        "items": ui_items,
+        "intf_summary": {
+            "total": len(interfaces),
+            "uplink_count": len(uplinks),
+            "l2_count": len(l2_ports)
+        }
     }
 
 

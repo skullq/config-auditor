@@ -221,18 +221,26 @@ export function renderResult(result, containerId = 'compare-result-area') {
       const isL2 = sec.includes('(L2)');
       const sectionIcon = isUplink ? '🔗' : isL2 ? '🔀' : '📂';
       
-      const itemsHtml = items.map(item => `
-          <div class="result-item ${item.status}">
-            <span class="result-item-icon">${statusIcons[item.status] || '?'}</span>
-            <div>
-              <div class="result-item-label">${item.label}</div>
-              ${item.status !== 'pass'
-                ? `<div class="result-item-msg">기대: <code>${item.expected}</code> / 실제: <code>${item.actual}</code> — ${item.message}</div>`
-                : ''}
+      const itemsHtml = items.map(item => {
+          let cleanLabel = item.label;
+          // 인터페이스 섹션인 경우 '명칭 → ' 패턴 제거 (소급 적용)
+          if (sec.toLowerCase().includes('interface') && cleanLabel.includes(' → ')) {
+              cleanLabel = cleanLabel.split(' → ').pop();
+          }
+
+          return `
+            <div class="result-item ${item.status}">
+              <span class="result-item-icon">${statusIcons[item.status] || '?'}</span>
+              <div>
+                <div class="result-item-label">${cleanLabel}</div>
+                ${item.status !== 'pass'
+                  ? `<div class="result-item-msg">기대: <code>${item.expected}</code> / 실제: <code>${item.actual}</code> — ${item.message}</div>`
+                  : ''}
+              </div>
+              <span class="result-item-status ${item.status}">${item.status.toUpperCase()}</span>
             </div>
-            <span class="result-item-status ${item.status}">${item.status.toUpperCase()}</span>
-          </div>
-      `).join('');
+          `;
+      }).join('');
 
       return `
         <div class="section-group" style="margin-bottom: 24px;">

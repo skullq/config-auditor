@@ -145,7 +145,7 @@ def flatten_interfaces_for_ui(interfaces: List[Dict[str, Any]]) -> List[Dict[str
                 items.append({
                     "id": f"interface.uplink.{name}.opt.{j}",
                     "section": "interface (uplink)",
-                    "label": f"{name} → {opt_stripped}",
+                    "label": opt_stripped,
                     "value": opt_stripped,
                     "source": "raw",
                     "raw_block": intf["block_text"],

@@ -18,14 +18,7 @@ export function initGolden() {
   const selNone = document.getElementById('golden-select-none');
   const addRuleBtn = document.getElementById('golden-add-rule-btn');
 
-  initDropZone(zone, input, files => handleGoldenUpload(files[0]));
-
-  // 인터페이스 전용 드롭존
-  const intfZone  = document.getElementById('golden-intf-drop-zone');
-  const intfInput = document.getElementById('golden-intf-file-input');
-  if (intfZone && intfInput) {
-    initDropZone(intfZone, intfInput, files => handleIntfUpload(files[0]));
-  }
+  initDropZone(zone, input, files => handleUnifiedUpload(files[0]));
 
   saveBtn.addEventListener('click', saveTemplate);
   cancelBtn.addEventListener('click', () => {
@@ -51,18 +44,27 @@ export function initGolden() {
   });
 }
 
-// ── 일반 골든 설정 업로드 (인터페이스 제외) ──────────────────────────
+// ── 통합 골든 설정 업로드 (일반 + 인터페이스) ──────────────────────
 
-async function handleGoldenUpload(file) {
+async function handleUnifiedUpload(file) {
   const zone = document.getElementById('golden-drop-zone');
   const osType = document.getElementById('golden-os-select').value;
-  zone.innerHTML = `<div class="loading-overlay"><div class="spinner"></div><span>Genie로 분석 중... (${osType})</span></div>`;
+  
+  const hasExisting = allItems.length > 0 || intfItems.length > 0;
+  let isMerge = false;
+  
+  if (hasExisting) {
+    isMerge = confirm('기존 로드된 설정이 있습니다.\n확인: 현재 설정에 병합 (중복 시 새 데이터로 업데이트)\n취소: 기존 설정을 삭제하고 새로 시작');
+  }
+
+  zone.innerHTML = `<div class="loading-overlay"><div class="spinner"></div><span>통합 분석 중... (${osType})</span></div>`;
 
   try {
     const data = await uploadFile(`/api/golden/upload?os=${osType}`, file);
     if (data.os) document.getElementById('golden-os-select').value = data.os;
-    parsedData = data;
-    allItems = data.items.map(item => ({
+    
+    // 1. 일반 설정 병합
+    const newGeneral = data.general_items.map(item => ({
       ...item,
       selected: true,
       match_type: item.match_type || (item.source === 'genie' ? 'exact' : 'contains'),
@@ -70,47 +72,40 @@ async function handleGoldenUpload(file) {
       expected_value: item.value,
     }));
 
-    document.getElementById('golden-hostname').textContent = data.hostname || '(알 수 없음)';
-    document.getElementById('golden-section-count').textContent = data.section_count;
-    document.getElementById('golden-item-count').textContent = allItems.length + intfItems.length;
-    document.getElementById('golden-results-area').style.display = 'block';
+    if (isMerge) {
+      // 중복 체크 및 업데이트 (ID 기준)
+      const existingIds = new Set(newGeneral.map(i => i.id));
+      allItems = [...allItems.filter(i => !existingIds.has(i.id)), ...newGeneral];
+    } else {
+      allItems = newGeneral;
+      parsedData = data.parsed; // "새로 시작"할 때만 전체 파싱 트리 교체
+    }
 
-    buildSectionFilters();
-    renderItems();
-
-    zone.innerHTML = `
-      <div class="drop-icon">✅</div>
-      <h3>${file.name}</h3>
-      <p>분석 완료 (인터페이스 섹션 제외) — 다른 파일을 올리려면 클릭</p>
-    `;
-  } catch (err) {
-    zone.innerHTML = `
-      <div class="drop-icon">📁</div>
-      <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
-      <p>Cisco IOS / IOS-XE 설정 파일 (.cfg, .txt, .conf)</p>
-    `;
-    toast(`업로드 실패: ${err.message}`, 'error');
-  }
-}
-
-// ── 인터페이스 전용 업로드 ───────────────────────────────────────────
-
-async function handleIntfUpload(file) {
-  const zone = document.getElementById('golden-intf-drop-zone');
-  zone.innerHTML = `<div class="loading-overlay"><div class="spinner"></div><span>인터페이스 분석 중...</span></div>`;
-  try {
-    const data = await uploadFile('/api/golden/upload-interface', file);
-    intfItems = data.items.map(item => ({
+    // 2. 인터페이스 설정 병합
+    const newIntf = data.intf_items.map(item => ({
       ...item,
       selected: true,
       expected_value: item.value,
     }));
 
-    document.getElementById('intf-total-count').textContent = data.total;
-    document.getElementById('intf-uplink-count').textContent = data.uplink_count;
-    document.getElementById('intf-l2-count').textContent = data.l2_count;
-    document.getElementById('golden-intf-summary').style.display = 'block';
+    if (isMerge) {
+      const existingIntfIds = new Set(newIntf.map(i => i.id));
+      intfItems = [...intfItems.filter(i => !existingIntfIds.has(i.id)), ...newIntf];
+    } else {
+      intfItems = newIntf;
+    }
+
+    // 3. UI 업데이트
+    document.getElementById('golden-hostname').textContent = data.hostname || '(알 수 없음)';
+    document.getElementById('golden-section-count').textContent = data.section_count;
     document.getElementById('golden-item-count').textContent = allItems.length + intfItems.length;
+    
+    // 인터페이스 요약 업데이트
+    document.getElementById('intf-total-count').textContent = data.intf_summary.total;
+    document.getElementById('intf-uplink-count').textContent = data.intf_summary.uplink_count;
+    document.getElementById('intf-l2-count').textContent = data.intf_summary.l2_count;
+    document.getElementById('golden-intf-summary').style.display = 'block';
+    
     document.getElementById('golden-results-area').style.display = 'block';
 
     buildSectionFilters();
@@ -119,16 +114,16 @@ async function handleIntfUpload(file) {
     zone.innerHTML = `
       <div class="drop-icon">✅</div>
       <h3>${file.name}</h3>
-      <p>인터페이스 분석 완료: 업링크 ${data.uplink_count}개 / L2 ${data.l2_count}개 — 클릭하여 재업로드</p>
+      <p>통합 분석 완료 — 다른 파일을 올리려면 클릭</p>
     `;
-    toast(`인터페이스 분석 완료: 총 ${data.total}개 (업링크 ${data.uplink_count} / L2 ${data.l2_count})`, 'success');
+    toast(isMerge ? '설정이 성공적으로 병합되었습니다.' : '새로운 설정 분석 완료', 'success');
   } catch (err) {
     zone.innerHTML = `
-      <div class="drop-icon">🔌</div>
-      <h3>인터페이스 설정 파일을 드래그하거나 클릭하여 업로드</h3>
-      <p>동일 파일 또는 별도의 인터페이스 설정 파일 가능</p>
+      <div class="drop-icon">📁+🔌</div>
+      <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
+      <p>전체 설정 또는 인터페이스 설정 파일 (.cfg, .txt, .conf)</p>
     `;
-    toast(`인터페이스 업로드 실패: ${err.message}`, 'error');
+    toast(`업로드 실패: ${err.message}`, 'error');
   }
 }
 
@@ -230,6 +225,11 @@ function renderItems() {
         }
       }
 
+      // 인터페이스 항목 레이블 정리 (소급 적용)
+      if ((item.intf_type === 'uplink' || item.intf_type === 'l2' || sec.toLowerCase().includes('interface')) && displayLabel.includes(' → ')) {
+          displayLabel = displayLabel.split(' → ').pop();
+      }
+
       // 업링크 IP 옵션은 시각적으로 약하게 표시
       const isIpOpt = item.intf_type === 'uplink' && item.match_type === 'exists';
       
@@ -239,7 +239,7 @@ function renderItems() {
       htmlParts.push(`
         <div class="item-row ${item.selected ? 'selected' : ''} ${isMultiline ? 'multiline' : ''}" data-idx="${realIdx}" style="margin-left:14px;${isIpOpt ? 'opacity:0.65;' : ''}">
           <input type="checkbox" class="item-check" ${item.selected ? 'checked' : ''} data-idx="${realIdx}">
-          <span class="item-source ${item.source}">${item.intf_type ? item.intf_type : item.source}</span>
+          ${(item.intf_type || item.source) !== 'uplink' && (item.intf_type || item.source) !== 'l2' ? `<span class="item-source ${item.source}">${item.intf_type ? item.intf_type : item.source}</span>` : ''}
           <span class="item-label" title="${item.label}">${displayLabel}</span>
           
           ${isMultiline ? `

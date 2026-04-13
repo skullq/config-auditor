@@ -11,8 +11,9 @@ dependencies = [
     "httpx",
     "pydantic",
     "genie",
-    "genie.libs.parser",
+    "genie-libs-parser",
     "pyats",
+    "unicon>=26.3",
 ]
 
 [tool.uv]
