@@ -19,7 +19,7 @@ def get_conn() -> sqlite3.Connection:
 
 
 def init_db():
-    """테이블 생성 (없으면)."""
+    """테이블 생성 및 누락된 컬럼 마이그레이션."""
     with get_conn() as conn:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS templates (
@@ -27,10 +27,10 @@ def init_db():
             name        TEXT NOT NULL,
             hostname_regex TEXT DEFAULT '',
             description TEXT DEFAULT '',
-            os          TEXT DEFAULT 'iosxe', -- iosxe, nxos, iosxr, aireos 등
-            golden_items TEXT NOT NULL,       -- JSON (기본 항목)
-            conditional_rules TEXT DEFAULT '[]', -- JSON (조건부 규칙: if regex then expect items)
-            golden_parsed TEXT NOT NULL,      -- JSON (원본 분석)
+            os          TEXT DEFAULT 'iosxe',
+            golden_items TEXT NOT NULL,
+            conditional_rules TEXT DEFAULT '[]',
+            golden_parsed TEXT NOT NULL,
             created_at  TEXT NOT NULL
         );
 
@@ -41,7 +41,7 @@ def init_db():
             template_name TEXT,
             overall     TEXT,
             score       REAL,
-            detail      TEXT,             -- JSON
+            detail      TEXT,
             created_at  TEXT NOT NULL,
             bulk_job_id TEXT DEFAULT ''
         );
@@ -51,6 +51,27 @@ def init_db():
             value       TEXT
         );
         """)
+        
+        # 마이그레이션: 기존 테이블에 컬럼이 없는 경우 추가
+        # 1. templates 테이블 컬럼 확인
+        cursor = conn.execute("PRAGMA table_info(templates)")
+        columns = [row['name'] for row in cursor.fetchall()]
+        
+        needed_columns = {
+            'os': "TEXT DEFAULT 'iosxe'",
+            'conditional_rules': "TEXT DEFAULT '[]'",
+            'description': "TEXT DEFAULT ''",
+            'hostname_regex': "TEXT DEFAULT ''"
+        }
+        for col, definition in needed_columns.items():
+            if col not in columns:
+                conn.execute(f"ALTER TABLE templates ADD COLUMN {col} {definition}")
+        
+        # 2. compare_results 테이블 컬럼 확인
+        cursor = conn.execute("PRAGMA table_info(compare_results)")
+        columns = [row['name'] for row in cursor.fetchall()]
+        if 'bulk_job_id' not in columns:
+            conn.execute("ALTER TABLE compare_results ADD COLUMN bulk_job_id TEXT DEFAULT ''")
 
 
 # ── Templates ──────────────────────────────────────────────────────────

@@ -38,12 +38,22 @@ def _normalize_banner(text: str) -> str:
     return "\n".join(l.strip() for l in lines if l.strip())
 
 
+def _is_same_normalized(a: str, b: str) -> bool:
+    """공백 종류, 개수, 대소문자 차이를 완전히 무시하고 실질적인 의미가 동일한지 확인."""
+    if not a or not b:
+        return a == b
+    # 모든 종류의 공백(탭, 줄바꿈 등)을 단일 공백으로 치환하여 비교
+    norm_a = re.sub(r'[\s\u00A0\t\n\r]+', ' ', str(a).strip()).lower()
+    norm_b = re.sub(r'[\s\u00A0\t\n\r]+', ' ', str(b).strip()).lower()
+    return norm_a == norm_b
+
+
 def _match_value(expected: Any, actual_value: Any, match_type: str, section: str = "") -> tuple[bool, str]:
     """
     값 비교 및 UI에 표시할 실제 값(display_actual) 반환.
     """
     exp_str = str(expected).strip()
-    act_full = str(actual_value) if actual_value is not None else ""
+    act_full = str(actual_value).strip() if actual_value is not None else ""
     
     if not act_full:
         return (False, "(없음)")
@@ -52,34 +62,32 @@ def _match_value(expected: Any, actual_value: Any, match_type: str, section: str
     if section == "banner":
         norm_exp = _normalize_banner(exp_str)
         norm_act = _normalize_banner(act_full)
-        if norm_exp == norm_act:
-            return (True, "(배너 일치)")
-        if norm_exp in norm_act:
-            return (True, "(배너 내용 포함)")
-        # 불일치 시 요약 표시
-        return (False, act_full.splitlines()[1] if len(act_full.splitlines()) > 1 else act_full)
+        if norm_exp == norm_act or norm_exp in norm_act:
+            return (True, "(배너 일치)" if norm_exp == norm_act else "(배너 포함)")
+        return (False, act_full.splitlines()[0] + "..." if len(act_full.splitlines()) > 1 else act_full)
 
-    # 멀티라인 블록인 경우 줄 단위 분석
-    lines = [l.strip() for l in act_full.splitlines()]
+    # 줄 단위 분석 전처리
+    lines = [l.strip() for l in act_full.splitlines() if l.strip()]
     
     if match_type == "exists":
         if exp_str:
             for line in lines:
-                if exp_str in line:
+                if _is_same_normalized(exp_str, line) or (exp_str.lower() in line.lower()):
                     return (True, line)
-            return (False, "(불일치/미발견)")
+            return (False, "(미발견)")
         return (True, "(존재함)")
 
     if match_type == "exact":
-        if exp_str in lines:
-            return (True, exp_str)
-        if exp_str == act_full.strip():
-            return (True, act_full.strip())
-        return (False, act_full.splitlines()[0] + "..." if len(lines) > 1 else act_full)
+        for line in lines:
+            if _is_same_normalized(exp_str, line):
+                return (True, line)
+        if _is_same_normalized(exp_str, act_full):
+            return (True, act_full)
+        return (False, lines[0] + "..." if len(lines) > 0 else "(불일치)")
 
     if match_type == "regex":
         try:
-            pattern = re.compile(exp_str)
+            pattern = re.compile(exp_str, re.I)
             for line in lines:
                 if pattern.search(line):
                     return (True, line)
@@ -90,16 +98,25 @@ def _match_value(expected: Any, actual_value: Any, match_type: str, section: str
             return (False, "(Regex 에러)")
 
     if match_type == "contains":
+        low_exp = exp_str.lower()
         for line in lines:
-            if exp_str in line:
+            if low_exp in line.lower() or _is_same_normalized(exp_str, line):
                 return (True, line)
-        if exp_str in act_full:
+        if low_exp in act_full.lower():
             return (True, "(블록 내 포함)")
-        return (False, act_full.splitlines()[0] + "..." if len(lines) > 1 else act_full)
+        return (False, lines[0] + "..." if len(lines) > 0 else "(불일치)")
 
     # 기본값 (평문 비교)
-    matched = exp_str == act_full.strip()
-    return (matched, act_full if matched else (act_full.splitlines()[0] + "..." if len(lines) > 1 else act_full))
+    matched = _is_same_normalized(exp_str, act_full)
+    if not matched and len(lines) > 0:
+        for line in lines:
+            if _is_same_normalized(exp_str, line):
+                return (True, line)
+        # 마지막으로 혹시 모르니 포함 여부 확인 (Fallback)
+        if exp_str.lower() in act_full.lower():
+            return (True, "(블록 내 포함-F)")
+
+    return (matched, act_full if matched else (lines[0] + "..." if len(lines) > 0 else "(불일치)"))
 
 
 def _get_nested(data: dict, path: str) -> Any:
@@ -143,7 +160,7 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
         for rule in conditional_rules:
             regex = rule.get("hostname_regex", "")
             try:
-                if re.search(regex, hostname):
+                if re.search(regex, hostname, re.I):
                     # 조건이 일치하면 해당 액션 수행 (여기서는 항목 추가)
                     extra_items = rule.get("items", [])
                     for i in extra_items:
@@ -194,19 +211,24 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
                 if not matched:
                     display_actual = "(L2 포트 중 미일치)" if all_l2_actuals else "(L2 포트 없음)"
             
-            # 2. 일반 병합 섹션 (feature, ip route, banner 등)
-            elif not parent_hdr or parent_hdr == section:
-                all_raw = '\n'.join(target_entry["raw"])
-                matched, display_actual = _match_value(expected, all_raw, match_type, section)
-            
-            # 3. 특정 헤더 기반 (Uplink 인터페이스, ACL 등)
+            # 2. 특정 헤더 기반 (Interface, Class-map, Policy-map 등)
             elif parent_hdr:
                 target_block = None
+                # 1단계: 헤더가 정확히 일치하는 블록 찾기 (startswith 가 아닌 전체 줄 비교)
                 for block in target_entry["raw"]:
-                    if block.startswith(parent_hdr):
+                    first_line = block.splitlines()[0].strip()
+                    if _is_same_normalized(parent_hdr, first_line):
                         target_block = block
                         break
+                
                 matched, display_actual = _match_value(expected, target_block, match_type, section)
+                
+                # 2단계: 실패 시 해당 섹션 전체에서 다시 검색 (인터페이스 제외)
+                if not matched and section not in ('interface (uplink)', 'interface'):
+                    all_raw_text = '\n'.join(target_entry["raw"])
+                    m2, d2 = _match_value(expected, all_raw_text, match_type, section)
+                    if m2:
+                        matched, display_actual = m2, d2
             else:
                 all_raw = '\n'.join(target_entry["raw"])
                 matched, display_actual = _match_value(expected, all_raw, match_type, section)

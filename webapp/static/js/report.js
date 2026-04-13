@@ -1,13 +1,24 @@
-// report.js — 레포트 탭 기능 및 SSE 스트리밍
-
 import { api, toast } from './app.js';
+import { renderResult } from './compare.js?v=8';
 
 export function initReport() {
-    // 탭 열리면 자동 로드 이벤트 바인딩 (app.js에서 탭 전환시 로드하게 해도 무방)
+    // 탭 열리면 자동 로드 이벤트 바인딩
     document.querySelector('[data-tab="tab-report"]').addEventListener('click', loadReportHistory);
     
     document.getElementById('report-bulk-btn').addEventListener('click', runBulkLLM);
     
+    // 상세 결과 모달 닫기 이벤트
+    const detailModal = document.getElementById('result-detail-modal');
+    const closeBtn = document.getElementById('result-detail-close');
+    if (closeBtn) {
+        closeBtn.onclick = () => detailModal.style.display = 'none';
+    }
+    window.onclick = (event) => {
+        if (event.target === detailModal) detailModal.style.display = 'none';
+        const llmModal = document.getElementById('llm-modal');
+        if (event.target === llmModal) llmModal.style.display = 'none';
+    };
+
     loadReportHistory();
 }
 
@@ -33,7 +44,8 @@ async function loadReportHistory() {
             <td>
               <div style="display:flex; gap:16px; align-items:center;">
                 <!-- 데이터 & 결과 다운로드 그룹 -->
-                <div style="display:flex; flex-direction:column; gap:4px; min-width:140px;">
+                <div style="display:flex; flex-direction:column; gap:4px; min-width:150px;">
+                  <button class="btn btn-sm btn-primary" onclick="window.viewArchiveResult('${r.id}')" style="text-align:left;">🔍 상세 결과 보기</button>
                   <button class="btn btn-sm btn-secondary" onclick="window.downloadCompareData('${r.id}')" style="text-align:left;">💾 비교자료 다운로드</button>
                   ${r.has_report ? `<button class="btn btn-sm btn-secondary" onclick="window.downloadReport('${r.id}')" style="text-align:left;">⬇ LLM 분석결과 다운로드</button>` : ''}
                 </div>
@@ -51,6 +63,23 @@ async function loadReportHistory() {
         `).join('');
     } catch {}
 }
+
+window.viewArchiveResult = async (id) => {
+    try {
+        const r = await api(`/api/compare/results/${id}`);
+        const resultData = { ...r.detail, hostname: r.hostname, template_name: r.template_name };
+        
+        const modal = document.getElementById('result-detail-modal');
+        const title = document.getElementById('result-detail-title');
+        
+        title.textContent = `🔍 [${r.hostname}] 상세 비교 결과 (${r.created_at})`;
+        modal.style.display = 'flex';
+        
+        renderResult(resultData, 'result-detail-body');
+    } catch (e) {
+        toast('결과를 불러오지 못했습니다.', 'error');
+    }
+};
 
 window.downloadCompareData = (id) => {
     window.location.href = `/api/compare/download/${id}`;

@@ -186,26 +186,69 @@ window.viewResult = async (id) => {
   }
 };
 
-function renderResult(result) {
-  const area = document.getElementById('compare-result-area');
-  const overall = result.overall;
-  const icons = { pass: '✅', review: '⚠️', fail: '❌' };
+export function renderResult(result, containerId = 'compare-result-area') {
+  const area = document.getElementById(containerId);
+  if (!area) return;
 
-  const itemsHtml = result.items.map(item => `
-    <div class="result-item ${item.status}">
-      <span class="result-item-icon">${icons[item.status] || '?'}</span>
-      <div>
-        <div class="result-item-label">${item.label}</div>
-        ${item.status !== 'pass'
-          ? `<div class="result-item-msg">기대: <code>${item.expected}</code> / 실제: <code>${item.actual}</code> — ${item.message}</div>`
-          : ''}
-      </div>
-      <span class="result-item-status ${item.status}">${item.status.toUpperCase()}</span>
-    </div>
-  `).join('');
+  const isModal = containerId.includes('modal');
+  const stickyTop = isModal ? '0' : '56px';
+
+  const overall = result.overall;
+  const statusIcons = { pass: '✅', review: '⚠️', fail: '❌' };
+
+  // 1. 섹션별 그룹핑
+  const grouped = {};
+  result.items.forEach(item => {
+      let sec = item.section || '기타 설정';
+      
+      // 골든 탭의 그룹핑 규칙과 어느정도 호환되도록 정리
+      if (sec.startsWith('interface')) {
+          if (item.id.includes('.uplink.') || item.id.includes('.L2.')) {
+             // 이미 'interface (uplink)' 형태임
+          } else {
+             sec = 'INTERFACE (GENIE)';
+          }
+      }
+      
+      if (!grouped[sec]) grouped[sec] = [];
+      grouped[sec].push(item);
+  });
+
+  // 2. HTML 생성
+  const sectionHtmls = Object.keys(grouped).sort().map(sec => {
+      const items = grouped[sec];
+      const isUplink = sec.startsWith('interface (uplink)') || sec.includes('GigabitEthernet') || sec.includes('TenGigabit');
+      const isL2 = sec.includes('(L2)');
+      const sectionIcon = isUplink ? '🔗' : isL2 ? '🔀' : '📂';
+      
+      const itemsHtml = items.map(item => `
+          <div class="result-item ${item.status}">
+            <span class="result-item-icon">${statusIcons[item.status] || '?'}</span>
+            <div>
+              <div class="result-item-label">${item.label}</div>
+              ${item.status !== 'pass'
+                ? `<div class="result-item-msg">기대: <code>${item.expected}</code> / 실제: <code>${item.actual}</code> — ${item.message}</div>`
+                : ''}
+            </div>
+            <span class="result-item-status ${item.status}">${item.status.toUpperCase()}</span>
+          </div>
+      `).join('');
+
+      return `
+        <div class="section-group" style="margin-bottom: 24px;">
+            <div class="section-group-header" style="background:var(--bg-secondary); padding:8px 12px; margin-bottom:8px; border-radius:6px; font-weight:bold; color:var(--accent); font-size:13px; display:flex; align-items:center; gap:8px; border-left: 3px solid var(--accent); position: sticky; top: ${stickyTop}; z-index: 5;">
+                <span style="font-size:16px;">${sectionIcon}</span> 
+                <span>${sec.toUpperCase()} <span style="color:var(--text-muted); font-size:11px; font-weight:normal;">(${items.length}개 항목)</span></span>
+            </div>
+            <div class="result-items" style="display: flex; flex-direction: column; gap: 6px;">
+                ${itemsHtml}
+            </div>
+        </div>
+      `;
+  }).join('');
 
   area.innerHTML = `
-    <div class="result-header" style="background: var(--bg-card); border-color: var(--border);">
+    <div class="result-header" style="background: var(--bg-card); border-color: var(--border); margin-bottom: 24px;">
       <div class="result-badge ${overall}">${overall}</div>
       <div class="result-info">
         <div class="result-hostname">${result.hostname}</div>
@@ -216,10 +259,15 @@ function renderResult(result) {
       </div>
       <div style="font-size: 32px; font-weight: 800; color: var(--text-secondary)">${result.score}%</div>
     </div>
-    <div class="result-items">${itemsHtml}</div>
+    <div class="results-container">
+        ${sectionHtmls}
+    </div>
   `;
   area.style.display = 'block';
   
-  // Smooth scroll
-  area.scrollIntoView({ behavior: 'smooth' });
+  if (containerId === 'compare-result-area') {
+      area.scrollIntoView({ behavior: 'smooth' });
+  } else {
+      area.scrollTop = 0;
+  }
 }

@@ -1,0 +1,27 @@
+[project]
+name = "config-auditor"
+version = "0.1.0"
+description = "Network Configuration Auditor using FastAPI, PyATS Genie, and Ollama"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "httpx",
+    "pydantic",
+    "genie",
+    "genie.libs.parser",
+    "pyats",
+]
+
+[tool.uv]
+managed = true
+package = false
+
+[tool.setuptools]
+packages = []
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

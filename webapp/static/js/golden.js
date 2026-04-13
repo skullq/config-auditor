@@ -204,8 +204,13 @@ function renderItems() {
     const sectionHint = isUplink ? ' [업링크 — 번호+옵션 검증]' : isL2 ? ' [L2 — 옵션 기준 검증]' : '';
 
     htmlParts.push(`
-      <div class="section-group-header" style="background:var(--bg-secondary); padding:8px 12px; margin-top:12px; margin-bottom:4px; border-radius:6px; font-weight:bold; color:var(--accent); font-size:13px; display:flex; align-items:center; gap:8px; border-left: 3px solid var(--accent);">
-        <span style="font-size:16px;">${sectionIcon}</span> ${sec.toUpperCase()}${sectionHint} <span style="color:var(--text-muted); font-size:11px; font-weight:normal;">(${grouped[sec].length}개 항목)</span>
+      <div class="section-group-header" style="background:var(--bg-secondary); padding:8px 12px; margin-top:12px; margin-bottom:4px; border-radius:6px; font-weight:bold; color:var(--accent); font-size:13px; display:flex; align-items:center; gap:8px; border-left: 3px solid var(--accent); position: sticky; top: 0; z-index: 5;">
+        <span style="font-size:16px;">${sectionIcon}</span> 
+        <span style="flex:1;">${sec.toUpperCase()}${sectionHint} <span style="color:var(--text-muted); font-size:11px; font-weight:normal;">(${grouped[sec].length}개 항목)</span></span>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm section-toggle" data-sec="${sec.replace(/"/g, '&quot;')}" data-val="true" style="padding:2px 8px; font-size:10px;">전체 선택</button>
+          <button class="btn btn-secondary btn-sm section-toggle" data-sec="${sec.replace(/"/g, '&quot;')}" data-val="false" style="padding:2px 8px; font-size:10px;">전체 해제</button>
+        </div>
       </div>
     `);
 
@@ -263,6 +268,17 @@ function renderItems() {
   });
 
   list.innerHTML = htmlParts.join('');
+
+  // 그룹별 전체 선택/해제 이벤트
+  list.querySelectorAll('.section-toggle').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sec = btn.dataset.sec;
+      const val = btn.dataset.val === 'true';
+      grouped[sec].forEach(i => i.selected = val);
+      renderItems(); // 상태 업데이트 후 다시 렌더링
+    });
+  });
 
   // 이벤트 바인딩 — combined 배열 기준 idx 사용
   list.querySelectorAll('.item-check').forEach(cb => {
