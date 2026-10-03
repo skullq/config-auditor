@@ -55,20 +55,22 @@ async def golden_upload(file: UploadFile = File(...), os: str = "iosxe"):
     from core.interface_parser import parse_interfaces, flatten_interfaces_for_ui
     content = (await file.read()).decode("utf-8", errors="replace")
     
-    # 1. 일반 설정 분석 (인터페이스 제외)
+    # 1. 전체 블록 및 설정 분석 (L2/L3 인터페이스 그룹 포함)
     parsed = parse_config(content, os_type=os)
-    general_items = [i for i in flatten_for_ui(parsed) if not i.get("section", "").startswith("interface")]
+    general_items = flatten_for_ui(parsed)
     
-    # 2. 인터페이스 상세 분석
+    # 2. 인터페이스 요약 정보 산출
     interfaces = parse_interfaces(content)
-    intf_items = flatten_interfaces_for_ui(interfaces)
+    intf_items = []
     
-    uplinks = [i for i in interfaces if i["type"] == "uplink"]
-    l2_ports = [i for i in interfaces if i["type"] == "l2"]
+    uplinks = [i for i in interfaces if i.get("type") == "uplink"]
+    l2_ports = [i for i in interfaces if i.get("type") == "l2"]
 
     return {
         "hostname": parsed.get("hostname"),
         "os": parsed.get("os"),
+        "platform": parsed.get("platform"),
+        "blocks": parsed.get("blocks", []),
         "section_count": len(parsed.get("sections", {})),
         "general_items": general_items,
         "intf_items": intf_items,

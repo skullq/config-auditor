@@ -1,41 +1,46 @@
-# Network Config Auditor (FastAPI + Pyats Genie + Ollama)
+# Network Config Auditor (FastAPI + cisco-config-parser + Ollama)
 
-Cisco IOS-XE, NX-OS, IOS-XR, AireOS (WLC) 및 IOS 설정 파일을 자동으로 분석하고, 골든 컨피그(Golden Config) 기반으로 규정 준수 여부를 감사(Audit)하는 전문 프로젝트입니다. PyATS Genie를 통한 구조화된 분석과 Ollama LLM을 이용한 지능형 레포트 정제 기능을 제공합니다.
+Cisco IOS-XE, NX-OS, IOS-XR, AireOS (WLC) 및 IOS 설정 파일을 자동으로 분석하고, 골든 컨피그(Golden Config) 기반으로 규정 준수 여부를 감사(Audit)하는 전문 프로젝트입니다. `cisco-config-parser 3.0.0`을 통한 구조화된 20+개 블록 분석 및 Drag & Drop 배치 감사 구성, Ollama LLM을 이용한 지능형 레포트 정제 기능을 제공합니다.
 
 ---
 
 ## 핵심 기능
 
-### 1. 멀티 플랫폼 및 지능형 골든 컨피그 관리
+### 1. cisco-config-parser 3.0.0 기반 모듈형 블록 분석 & Drag & Drop 정렬
+- **20+개 전역 블록 자동 추출**: Identity, L3/L2 인터페이스, VLAN, VRF, 라우팅(Static/OSPF/BGP/EIGRP), ACL, Prefix List, Route Map, FHRP, AAA, Line, Banner 등을 정밀 구조화.
+- **Drag & Drop 감사 순서 제어**: 골든 탭에서 각 블록 카드를 마우스로 위아래로 끌어서 검사 순서를 재배치하고, 원클릭으로 블록 전체를 On/Off 활성화/비활성화 가능.
+- **Windows 네이티브 완벽 지원**: 기존 pyATS Genie와 달리 별도의 C 빌드 도구 없이 Windows 환경에서도 `uv`를 통해 즉시 동작.
+
+### 2. 멀티 플랫폼 및 지능형 골든 컨피그 관리
 - **멀티 OS 지원**: IOS-XE, NX-OS, IOS-XR, AireOS(WLC), 클래식 IOS 장비를 모두 지원합니다.
-- **자동 섹션 탐지**: IOS 설정의 들여쓰기 규칙을 분석하여 Interface, OSPF, BGP, ACL 등 모든 섹션을 자동으로 분류합니다.
+- **자동 섹션 탐지**: IOS 설정의 들여쓰기 규칙과 `ConfigTree`를 분석하여 Interface, OSPF, BGP, ACL 등 모든 섹션을 자동으로 분류합니다.
 - **시각적 그룹화**: 골든 탭과 비교 탭 모두에서 논리적 섹션별로 항목을 그룹화하며, 고유 아이콘(🔗 인터페이스, 📂 일반 설정)을 통해 가독성을 높였습니다.
 - **일괄 항목 제어**: 섹션 그룹별 '전체 선택' 및 '전체 해제' 기능을 통해 템플릿 커스터마이징 효율을 극대화했습니다.
 
-### 2. 강력한 비교 엔진 (Expert Audit)
+### 3. 강력한 비교 엔진 (Expert Audit)
 - **최고 수준의 정규화(Extreme Normalization)**: 단순 공백 차이, 탭, 특수 공백, 대소문자 차이를 완전히 무시하여 불필요한 오탐(False Negative)을 제거합니다.
 - **이중 폴백(Fallback) 매칭**: 특정 설정 블록이 이동되거나 가려진 경우에도, 동일 섹션 내 전역 검색을 수행하여 실제 설정 존재 여부를 정확히 판정합니다.
 - **자동 줄바꿈(Word Wrap) 지원**: 매우 긴 설명(Description)이나 복잡한 ACL 문구도 화면 크기에 맞게 자동으로 줄바꿈되어 최적의 가독성을 제공합니다.
 
-### 3. 지속적 이력 관리 및 상세 조회 (Archive Engine)
+### 4. 지속적 이력 관리 및 상세 조회 (Archive Engine)
 - **감사 아카이빙**: 모든 감사 실행 결과는 SQLite 데이터베이스에 영구 저장됩니다.
 - **대화형 상세 결과 모달**: 'Report' 탭의 과거 이력을 클릭 한 번으로 불러와, 실시간 검사와 동일한 그룹화 UI로 상세 내역을 언제든 다시 검토할 수 있습니다.
 - **유연한 워크플로우**: 실시간 비교(Compare 탭)와 장기적 감사 추적(Report 탭)을 분리하여 효율적인 관리 환경을 제공합니다.
 
-### 4. 호스트명 기반 동적 액션 (Conditional Rules)
+### 5. 호스트명 기반 동적 액션 (Conditional Rules)
 - **Regex 기반 매칭**: 장비의 호스트명을 정규표현식으로 분석합니다.
 - **조건부 추가 검증**: 예: 호스트명이 `^SH-.*-AGG`와 일치할 때만 특정 인터페이스 설정이나 ACL이 추가로 포함되도록 하는 동식 액션을 로드합니다.
 
-### 5. 멀티 티어 감사 결과 (Pass / Review / Fail)
+### 6. 멀티 티어 감사 결과 (Pass / Review / Fail)
 - **Pass**: 모든 필수 및 선택 항목이 기대값과 일치.
 - **Review**: 가중치가 낮은 선택적 항목이 불일치하거나 누락된 경우.
 - **Fail**: 필수 설정이 누락되었거나 기대값과 다른 경우.
 
-### 6. LLM 기반 결과 정교화 (Report Enrichment)
+### 7. LLM 기반 결과 정교화 (Report Enrichment)
 - **Ollama 연동**: 로컬 LLM을 사용하여 감사 결과를 전문가 수준으로 재가공합니다.
 - **영향도 분석**: 위반 사항이 네트워크 인프라에 미치는 영향(Impact)을 스스로 분석하여 조치 로드맵을 제시합니다.
 
-### 7. 유지보수 및 신뢰성
+### 8. 유지보수 및 신뢰성
 - **자동 데이터베이스 마이그레이션**: 시스템이 업데이트되어 새로운 스키마가 필요할 때, 별도의 설정 없이 시작 시 자동으로 DB 구조를 최신화하여 중단 없는 업그레이드를 보장합니다.
 
 ---
@@ -43,7 +48,7 @@ Cisco IOS-XE, NX-OS, IOS-XR, AireOS (WLC) 및 IOS 설정 파일을 자동으로 
 ## 기술 스택
 
 - Backend: Python 3.12, FastAPI, Uvicorn
-- Parsing: PyATS / Genie (Cisco Library)
+- Parsing: `cisco-config-parser 3.0.0`
 - Storage: SQLite (SQLAlchemy)
 - LLM: Ollama API (Local LLM)
 - Frontend: Vanilla JS, CSS (Premium Dark Theme), HTML5

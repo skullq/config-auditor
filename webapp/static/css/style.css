@@ -211,8 +211,8 @@ body {
 .item-row.selected { border-color: var(--accent-dim); background: rgba(47,129,247,0.08); }
 
 .item-check { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--accent); }
-.item-source { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
-.item-source.genie { background: #1a2a4a; color: var(--accent); }
+.item-source.genie,
+.item-source.cisco_config_parser { background: #1a2a4a; color: var(--accent); }
 .item-source.raw   { background: #2a1e10; color: #c9a227; }
 .item-label { font-family: 'Fira Code', monospace; font-size: 12px; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-value { font-family: 'Fira Code', monospace; font-size: 11px; color: var(--text-secondary); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -395,3 +395,192 @@ body {
 .justify-between { justify-content: space-between; }
 .mt-3 { margin-top: 12px; }
 .mb-3 { margin-bottom: 12px; }
+
+/* ── Drag & Drop Blocks ───────────────────────────── */
+.blocks-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.block-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.block-card:hover {
+  border-color: #444c56;
+}
+
+.block-card.dragging {
+  opacity: 0.4;
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.block-card.drag-over {
+  border-top: 3px solid var(--accent);
+  transform: translateY(2px);
+}
+
+.block-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.block-drag-handle {
+  cursor: grab;
+  color: var(--text-secondary);
+  font-size: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+}
+
+.block-drag-handle:active {
+  cursor: grabbing;
+}
+
+.block-order-badge {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 12px;
+  min-width: 28px;
+  text-align: center;
+}
+
+.block-icon {
+  font-size: 18px;
+}
+
+.block-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.block-count-badge {
+  font-size: 11px;
+  background: rgba(47, 129, 247, 0.15);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.block-toggle-check {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.block-chevron {
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.block-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.block-body {
+  padding: 10px 14px 14px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+  display: none;
+}
+
+.block-body.expanded {
+  display: block;
+}
+
+.block-items-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* Tree View in Block Cards */
+.tree-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+  font-family: var(--font-mono, 'Consolas', 'Courier New', monospace);
+  font-size: 12.5px;
+}
+
+.tree-section-node {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.tree-section-header {
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #58a6ff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tree-children-list {
+  padding: 6px 10px 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tree-child-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.tree-branch-symbol {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.tree-leaf-item {
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.filter-btn.disabled-block {
+  opacity: 0.5;
+  border-style: dashed !important;
+  text-decoration: line-through;
+}

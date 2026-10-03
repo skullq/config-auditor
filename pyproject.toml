@@ -1,7 +1,7 @@
 [project]
 name = "config-auditor"
 version = "0.1.0"
-description = "Network Configuration Auditor using FastAPI, PyATS Genie, and Ollama"
+description = "Network Configuration Auditor using FastAPI, cisco-config-parser, and Ollama"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,10 +10,8 @@ dependencies = [
     "python-multipart",
     "httpx",
     "pydantic",
-    "genie",
-    "genie-libs-parser",
-    "pyats",
-    "unicon>=26.3",
+    "cisco-config-parser==3.0.0",
+    "playwright>=1.63.0",
 ]
 
 [tool.uv]

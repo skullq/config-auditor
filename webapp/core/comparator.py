@@ -171,6 +171,11 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
                 continue
 
     target_sections = target_parsed.get("sections", {})
+    target_items_by_id = {}
+    if "blocks" in target_parsed:
+        for b in target_parsed.get("blocks", []):
+            for it in b.get("items", []):
+                target_items_by_id[it["id"]] = it
 
     for item in all_challenge_items:
         item_id = item["id"]
@@ -179,16 +184,20 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
         expected = item.get("expected_value", "")
         label = item.get("label", item_id)
         weight = item.get("weight", "required")
-        source = item.get("source", "genie")
+        source = item.get("source", "cisco_config_parser")
         is_cond = item.get("is_conditional", False)
 
         # 타겟에서 데이터 추출
         actual_value = None
         target_entry = target_sections.get(section, {})
 
-        if source == "genie" and "genie" in target_entry:
+        if item_id in target_items_by_id:
+            actual_value = target_items_by_id[item_id].get("value")
+            matched, display_actual = _match_value(expected, actual_value, match_type, section)
+        elif source in ("genie", "cisco_config_parser", "parsed") and ("genie" in target_entry or "parsed" in target_entry):
             sub_path = '.'.join(item_id.split('.')[1:])
-            actual_value = _get_nested(target_entry["genie"], sub_path)
+            target_dict = target_entry.get("parsed") or target_entry.get("genie")
+            actual_value = _get_nested(target_dict, sub_path)
             matched, display_actual = _match_value(expected, actual_value, match_type, section)
         elif source == "raw" and "raw" in target_entry:
             intf_type = item.get("intf_type")

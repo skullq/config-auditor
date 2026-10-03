@@ -30,3 +30,7 @@ server.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Samples (real device configs)
+samples/
+

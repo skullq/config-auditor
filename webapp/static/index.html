@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Network Config Auditor</title>
-  <meta name="description" content="Cisco IOS-XE 설정 파일 골든 컨피그 감사 도구 — PyATS Genie 기반">
+  <meta name="description" content="Cisco 네트워크 설정 파일 골든 컨피그 감사 도구 — cisco-config-parser 기반">
   <link rel="stylesheet" href="/static/css/style.css?v=2">
 </head>
 <body>
@@ -103,6 +103,21 @@
             <button id="golden-select-none" class="btn btn-secondary btn-sm">전체 해제</button>
           </div>
         </div>
+      </div>
+
+      <!-- 블록 순서 및 선택 (Drag & Drop) -->
+      <div class="card" id="golden-blocks-card" style="display:none">
+        <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px;margin-bottom:12px">
+          <div>
+            <div class="card-title" style="margin-bottom:4px">설정 블록 순서 및 선택 (Drag & Drop)</div>
+            <p class="text-muted" style="font-size:12px">블록 카드를 위아래로 끌어서 검사 순서를 바꾸고, 체크박스로 감사 대상 블록을 선택할 수 있습니다.</p>
+          </div>
+          <div class="flex gap-2">
+            <button id="golden-blocks-expand-all" class="btn btn-secondary btn-sm">모두 펼치기</button>
+            <button id="golden-blocks-collapse-all" class="btn btn-secondary btn-sm">모두 접기</button>
+          </div>
+        </div>
+        <div class="blocks-container" id="golden-blocks-list"></div>
       </div>
 
       <!-- 섹션 필터 -->
@@ -347,11 +362,11 @@
 
 <script type="module">
   // 캐시 우회를 위해 버전 쿼리 추가
-  import { initTabs, toast } from '/static/js/app.js?v=20';
-  import { initGolden } from '/static/js/golden.js?v=20';
-  import { initCompare } from '/static/js/compare.js?v=20';
-  import { initSettings } from '/static/js/settings.js?v=20';
-  import { initReport } from '/static/js/report.js?v=20';
+  import { initTabs, toast } from '/static/js/app.js?v=21';
+  import { initGolden } from '/static/js/golden.js?v=21';
+  import { initCompare } from '/static/js/compare.js?v=21';
+  import { initSettings } from '/static/js/settings.js?v=21';
+  import { initReport } from '/static/js/report.js?v=21';
 
   window.appToast = toast; // expose globally for inline use
 

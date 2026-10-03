@@ -206,7 +206,7 @@ export function renderResult(result, containerId = 'compare-result-area') {
           if (item.id.includes('.uplink.') || item.id.includes('.L2.')) {
              // 이미 'interface (uplink)' 형태임
           } else {
-             sec = 'INTERFACE (GENIE)';
+             sec = 'INTERFACE (PARSED)';
           }
       }
       
