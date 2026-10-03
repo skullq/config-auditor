@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Network Config Auditor</title>
   <meta name="description" content="Cisco 네트워크 설정 파일 골든 컨피그 감사 도구 — cisco-config-parser 기반">
-  <link rel="stylesheet" href="/static/css/style.css?v=2">
+  <link rel="stylesheet" href="/static/css/style.css?v=6">
 </head>
 <body>
 
@@ -37,138 +37,168 @@
       <h1 class="section-title">🥇 골든 컨피그 템플릿 생성</h1>
     </div>
 
-    <!-- 파일 업로드 -->
-    <div class="card">
-      <div class="card-title">📁 골든 설정 파일 업로드 <span style="font-size:12px;font-weight:normal;color:var(--text-secondary)">(인터페이스 섹션 제외 — 일반 정책 설정)</span></div>
-      <div class="form-group mb-3">
-        <label class="form-label">OS 타입 선택</label>
-        <select id="golden-os-select" class="form-select">
-          <option value="auto" selected>자동 감지 (Auto Detect)</option>
-          <option value="iosxe">Cisco IOS-XE</option>
-          <option value="nxos">Cisco NX-OS</option>
-          <option value="iosxr">Cisco IOS-XR</option>
-          <option value="ios">Cisco IOS</option>
-          <option value="aireos">Cisco AireOS (WLC)</option>
-        </select>
-      </div>
-      <div class="drop-zone" id="golden-drop-zone">
-        <input type="file" id="golden-file-input" accept=".cfg,.txt,.conf">
-        <div class="drop-icon">📁+🔌</div>
-        <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
-        <p>전체 설정 또는 인터페이스 설정이 포함된 파일 (.cfg, .txt, .conf)</p>
+    <!-- 파일 업로드 카드 (간결화) -->
+    <div class="card golden-upload-card">
+      <div class="upload-header-row">
+        <div class="card-title" style="margin-bottom:0">📁 설정 파일 분석 및 템플릿 생성</div>
+        <div class="form-group os-inline-select">
+          <label class="form-label" style="margin:0;font-size:12px;color:var(--text-secondary)">OS 타입:</label>
+          <select id="golden-os-select" class="form-select form-select-sm">
+            <option value="auto" selected>자동 감지 (Auto Detect)</option>
+            <option value="iosxe">Cisco IOS-XE</option>
+            <option value="nxos">Cisco NX-OS</option>
+            <option value="iosxr">Cisco IOS-XR</option>
+            <option value="ios">Cisco IOS</option>
+            <option value="aireos">Cisco AireOS (WLC)</option>
+          </select>
+        </div>
       </div>
 
-      <div class="card" id="intf-explanation-card" style="margin-top: -12px; border-top-left-radius: 0; border-top-right-radius: 0; background: var(--bg-primary);">
-        <p class="text-muted" style="font-size:12px">
-          <strong>업링크</strong> (L3/논리): 이름+옵션 모두 검증 (IP는 선택) &nbsp;·&nbsp;
-          <strong>L2 포트</strong> (Switchport): 옵션 기준 검증 (포트번호 무관)
-        </p>
+      <div class="drop-zone compact-drop-zone mt-3" id="golden-drop-zone">
+        <input type="file" id="golden-file-input" accept=".cfg,.txt,.conf">
+        <div class="drop-icon">📁</div>
+        <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
+        <p>전체 설정 또는 인터페이스 설정 파일 (.cfg, .txt, .conf) &nbsp;·&nbsp; <span class="text-muted">업링크(L3): 이름/옵션 검증 / L2 포트: 옵션 기준 검증</span></p>
       </div>
     </div>
 
-    <!-- 분석 결과 -->
+    <!-- 분석 결과 영역 -->
     <div id="golden-results-area" style="display:none">
       
-      <!-- 인터페이스 파싱 결과 요약 -->
-      <div id="golden-intf-summary" style="margin-bottom: 12px;">
-        <div class="flex gap-3" style="flex-wrap:wrap;">
-          <div class="card" style="flex:1;min-width:120px;padding:12px;background:var(--bg-secondary);margin-bottom:0">
-            <div style="font-size:22px;font-weight:800;" id="intf-total-count">0</div>
-            <div style="font-size:12px;color:var(--text-secondary)">전체 인터페이스</div>
+      <!-- 통합 요약 상태 바 (단순화) -->
+      <div class="golden-summary-bar card" id="golden-intf-summary">
+        <div class="summary-left">
+          <div class="summary-host-badge">
+            <span class="host-icon">🖥️</span>
+            <span class="host-name" id="golden-hostname">—</span>
           </div>
-          <div class="card" style="flex:1;min-width:120px;padding:12px;background:var(--bg-secondary);margin-bottom:0">
-            <div style="font-size:22px;font-weight:800;color:var(--success);" id="intf-uplink-count">0</div>
-            <div style="font-size:12px;color:var(--text-secondary)">업링크 (L3/논리)</div>
+          <div class="summary-stats-pills">
+            <div class="stat-pill"><span class="stat-label">총 항목</span><strong id="golden-item-count">0</strong></div>
+            <div class="stat-pill"><span class="stat-label">섹션</span><strong id="golden-section-count">0</strong></div>
+            <div class="stat-pill"><span class="stat-label">업링크(L3)</span><strong id="intf-uplink-count" style="color:var(--pass)">0</strong></div>
+            <div class="stat-pill"><span class="stat-label">L2 포트</span><strong id="intf-l2-count" style="color:var(--accent)">0</strong></div>
+            <span id="intf-total-count" style="display:none">0</span>
           </div>
-          <div class="card" style="flex:1;min-width:120px;padding:12px;background:var(--bg-secondary);margin-bottom:0">
-            <div style="font-size:22px;font-weight:800;color:var(--info);" id="intf-l2-count">0</div>
-            <div style="font-size:12px;color:var(--text-secondary)">L2 포트</div>
-          </div>
+        </div>
+        <div class="summary-actions">
+          <button id="golden-select-all" class="btn btn-secondary btn-sm">전체 선택</button>
+          <button id="golden-select-none" class="btn btn-secondary btn-sm">전체 해제</button>
         </div>
       </div>
 
-      <!-- 정보 요약 -->
-      <div class="card">
-        <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px">
-          <div>
-            <div class="card-title" style="margin-bottom:4px">📊 파싱 결과</div>
-            <div class="text-muted">
-              Hostname: <strong id="golden-hostname">—</strong> &nbsp;·&nbsp;
-              섹션: <strong id="golden-section-count">0</strong>개 &nbsp;·&nbsp;
-              항목: <strong id="golden-item-count">0</strong>개
+      <!-- 2단 워크스페이스 레이아웃 (좌: 블록 관리 / 우: 세부 설정 편집) -->
+      <div class="golden-workspace">
+        
+        <!-- 좌측: 블록 순서 및 선택 -->
+        <div class="card golden-blocks-panel" id="golden-blocks-card">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>🧱 설정 블록 관리</span>
+              <span class="text-muted text-xs">(Drag & Drop)</span>
+            </div>
+            <div class="flex gap-1">
+              <button id="golden-blocks-expand-all" class="btn-icon" title="모두 펼치기">⊞</button>
+              <button id="golden-blocks-collapse-all" class="btn-icon" title="모두 접기">⊟</button>
             </div>
           </div>
-          <div class="flex gap-2">
-            <button id="golden-select-all"  class="btn btn-secondary btn-sm">전체 선택</button>
-            <button id="golden-select-none" class="btn btn-secondary btn-sm">전체 해제</button>
+          <div class="blocks-container" id="golden-blocks-list"></div>
+        </div>
+
+        <!-- 우측: 상세 설정 항목 편집 -->
+        <div class="card golden-detail-panel" id="golden-detail-card">
+          <div class="panel-header" style="flex-direction:column; align-items:stretch; gap:10px; margin-bottom:12px;">
+            <div class="flex justify-between items-center">
+              <div class="panel-title">⚙️ 세부 설정 항목</div>
+              <div id="golden-current-filter-label" class="badge-subtle">전체 항목 표시 중</div>
+            </div>
+
+            <!-- 매칭 방식 (Match Type) 사용법 안내 박스 -->
+            <div class="match-type-guide-box">
+              <div class="guide-header">
+                <span class="guide-icon">💡</span>
+                <strong>설정값 비교 방식 (Match Type) 사용법 안내</strong>
+              </div>
+              <div class="guide-grid">
+                <div class="guide-pill"><span class="guide-badge exists">exists</span> <strong>존재 여부만 검사</strong>: 해당 명령어/키가 대상 파일에 존재하면 값과 무관하게 합격 (임의의 값 허용)</div>
+                <div class="guide-pill"><span class="guide-badge exact">exact</span> <strong>정확히 일치</strong>: 지정한 값과 반드시 100% 동일해야 합격 (예: <code>17.12</code>)</div>
+                <div class="guide-pill"><span class="guide-badge contains">contains</span> <strong>키워드 포함 검사</strong>: 특정 패턴/단어가 포함되면 합격 (예: <code>*CE1*</code>, <code>10.68.</code>)</div>
+                <div class="guide-pill"><span class="guide-badge regex">regex</span> <strong>정규표현식 검사</strong>: 정규식 패턴과 일치해야 합격 (예: <code>^CE_</code>, <code>^.*-CE\d+</code>)</div>
+              </div>
+            </div>
+
+            <!-- 가로 스크롤형 컴팩트 섹션 필터 칩 바 -->
+            <div class="items-filter-bar" id="golden-section-filters">
+              <button class="filter-btn active" data-section="">전체</button>
+            </div>
+          </div>
+          
+          <div class="items-list-container">
+            <div class="items-list" id="golden-items-list"></div>
           </div>
         </div>
+
       </div>
 
-      <!-- 블록 순서 및 선택 (Drag & Drop) -->
-      <div class="card" id="golden-blocks-card" style="display:none">
-        <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px;margin-bottom:12px">
-          <div>
-            <div class="card-title" style="margin-bottom:4px">설정 블록 순서 및 선택 (Drag & Drop)</div>
-            <p class="text-muted" style="font-size:12px">블록 카드를 위아래로 끌어서 검사 순서를 바꾸고, 체크박스로 감사 대상 블록을 선택할 수 있습니다.</p>
+      <!-- 실시간 최종 골든 설정 미리보기 (Live Config Preview) -->
+      <div class="card golden-preview-card mt-3" id="golden-preview-card">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>👁️ 최종 골든 템플릿 설정 실시간 미리보기</span>
+            <span class="badge-subtle" id="preview-active-stats">선택된 블록: 0개 / 항목: 0개</span>
           </div>
           <div class="flex gap-2">
-            <button id="golden-blocks-expand-all" class="btn btn-secondary btn-sm">모두 펼치기</button>
-            <button id="golden-blocks-collapse-all" class="btn btn-secondary btn-sm">모두 접기</button>
+            <button id="preview-copy-btn" class="btn btn-secondary btn-sm" title="CLI 설정 복사">📋 설정 복사</button>
+            <button id="preview-toggle-btn" class="btn btn-secondary btn-sm" title="미리보기 창 접기/펼치기">⊟ 접기</button>
           </div>
         </div>
-        <div class="blocks-container" id="golden-blocks-list"></div>
-      </div>
-
-      <!-- 섹션 필터 -->
-      <div class="card">
-        <div class="card-title">🔎 섹션 필터</div>
-        <div class="items-filter" id="golden-section-filters">
-          <button class="filter-btn active" data-section="">전체</button>
+        <p class="text-muted text-xs mb-2">선택된 설정 블록과 세부 항목의 설정값(exists, exact, contains, regex 등)이 실시간으로 합쳐진 최종 템플릿 CLI 결과입니다.</p>
+        <div class="preview-code-container" id="preview-code-container">
+          <pre id="golden-live-preview-code" class="preview-code-block"><code>선택된 설정 항목이 여기에 실시간으로 표시됩니다.</code></pre>
         </div>
-        <hr class="divider">
-        <div class="items-list" id="golden-items-list"></div>
       </div>
-    </div>
 
       <!-- 템플릿 저장 설정 -->
-      <div class="card">
-        <div class="card-title">💾 템플릿 기본 정보</div>
+      <div class="card golden-save-card mt-3">
+        <div class="card-title">💾 골든 템플릿 정보 및 저장</div>
         <div class="form-row">
-          <div class="form-group">
+          <div class="form-group" style="flex:1">
             <label class="form-label">템플릿 이름 *</label>
             <input id="golden-template-name" class="form-input" type="text" placeholder="예: Standard-V1">
           </div>
-          <div class="form-group">
+          <div class="form-group" style="flex:1">
             <label class="form-label">기본 적용 Hostname Regex</label>
             <input id="golden-hostname-regex" class="form-input" type="text" placeholder="예: ^.*-CE\d+">
           </div>
+          <div class="form-group" style="flex:1">
+            <label class="form-label">설명</label>
+            <input id="golden-description" class="form-input" type="text" placeholder="템플릿 설명">
+          </div>
         </div>
 
-        <div class="divider"></div>
+        <!-- 호스트명 매칭 동적 액션 (간결화된 아코디언) -->
+        <details class="conditional-details mt-2">
+          <summary class="text-muted" style="cursor:pointer; font-size:13px; font-weight:600;">
+            🎭 호스트명 매칭 동적 규칙 (Conditional Rules) 설정 펼치기
+          </summary>
+          <div class="conditional-content mt-2">
+            <div id="golden-conditional-container" class="flex flex-direction-column gap-2 mb-2"></div>
+            <button id="golden-add-rule-btn" class="btn btn-secondary btn-sm">+ 규칙 추가</button>
+          </div>
+        </details>
 
-        <div class="card-title">🎭 호스트명 매칭 동적 액션 (Conditional Rules)</div>
-        <p class="text-muted mb-3" style="font-size:12px">호스트명이 특정 패턴과 일치할 때 추가적으로 검사할 항목을 정의합니다.</p>
-        <div id="golden-conditional-container" class="flex flex-direction-column gap-2 mb-3">
-          <!-- 규칙들이 동적으로 추가됨 -->
-        </div>
-        <button id="golden-add-rule-btn" class="btn btn-secondary btn-sm mb-3">+ 규칙 추가</button>
-
-        <div class="divider"></div>
-
-        <div class="form-group">
-          <label class="form-label">설명</label>
-          <input id="golden-description" class="form-input" type="text" placeholder="설명 입력">
-        </div>
-        <div class="flex gap-2">
-          <button id="golden-save-btn" class="btn btn-primary">💾 골든 템플릿 저장</button>
-          <button id="golden-cancel-btn" class="btn btn-secondary" style="display:none">수정 취소</button>
+        <div class="flex justify-between items-center mt-3 pt-3" style="border-top:1px solid var(--border)">
+          <span class="text-muted text-xs">필요한 설정 블록 및 항목을 선택한 후 템플릿으로 저장하세요.</span>
+          <div class="flex gap-2">
+            <button id="golden-cancel-btn" class="btn btn-secondary" style="display:none">수정 취소</button>
+            <button id="golden-save-btn" class="btn btn-primary">💾 템플릿 저장하기</button>
+          </div>
         </div>
       </div>
+
     </div>
 
     <!-- 저장된 템플릿 목록 -->
-    <div class="card" id="golden-templates-card">
+    <div class="card mt-3" id="golden-templates-card">
       <div class="card-title">📋 저장된 템플릿</div>
       <div id="golden-templates-list">
         <div class="empty-state"><div class="empty-icon">📋</div><p>저장된 템플릿 없음</p></div>
@@ -362,11 +392,11 @@
 
 <script type="module">
   // 캐시 우회를 위해 버전 쿼리 추가
-  import { initTabs, toast } from '/static/js/app.js?v=21';
-  import { initGolden } from '/static/js/golden.js?v=21';
-  import { initCompare } from '/static/js/compare.js?v=21';
-  import { initSettings } from '/static/js/settings.js?v=21';
-  import { initReport } from '/static/js/report.js?v=21';
+  import { initTabs, toast } from '/static/js/app.js?v=25';
+  import { initGolden } from '/static/js/golden.js?v=25';
+  import { initCompare } from '/static/js/compare.js?v=25';
+  import { initSettings } from '/static/js/settings.js?v=25';
+  import { initReport } from '/static/js/report.js?v=25';
 
   window.appToast = toast; // expose globally for inline use
 

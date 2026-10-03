@@ -70,41 +70,45 @@ def _match_value(expected: Any, actual_value: Any, match_type: str, section: str
     lines = [l.strip() for l in act_full.splitlines() if l.strip()]
     
     if match_type == "exists":
-        if exp_str:
-            for line in lines:
-                if _is_same_normalized(exp_str, line) or (exp_str.lower() in line.lower()):
-                    return (True, line)
-            return (False, "(미발견)")
-        return (True, "(존재함)")
+        # exists: 해당 설정이 대상 파일에 존재하기만 하면 값이 무엇이든 상관없이 합격(Pass)
+        if lines:
+            return (True, f"(존재함: {lines[0]})")
+        elif act_full:
+            return (True, f"(존재함: {act_full})")
+        return (False, "(미존재)")
 
     if match_type == "exact":
+        # exact: 지정한 기대값과 반드시 정확히 일치해야 합격
         for line in lines:
             if _is_same_normalized(exp_str, line):
                 return (True, line)
         if _is_same_normalized(exp_str, act_full):
             return (True, act_full)
-        return (False, lines[0] + "..." if len(lines) > 0 else "(불일치)")
+        return (False, lines[0] if len(lines) > 0 else "(불일치)")
 
     if match_type == "regex":
+        # regex: ^CE_ 등의 정규표현식 패턴과 일치해야 합격
         try:
             pattern = re.compile(exp_str, re.I)
             for line in lines:
                 if pattern.search(line):
                     return (True, line)
             if pattern.search(act_full):
-                return (True, "(전체 매칭됨)")
-            return (False, "(미일치)")
-        except re.error:
-            return (False, "(Regex 에러)")
+                return (True, "(정규식 일치)")
+            return (False, lines[0] if len(lines) > 0 else "(미일치)")
+        except re.error as e:
+            return (False, f"(Regex 에러: {e})")
 
     if match_type == "contains":
-        low_exp = exp_str.lower()
+        # contains: *CE1* 형태의 와일드카드 및 단어 포함 검사
+        keyword = exp_str.strip('*').strip() if exp_str.startswith('*') or exp_str.endswith('*') else exp_str
+        low_kw = keyword.lower()
         for line in lines:
-            if low_exp in line.lower() or _is_same_normalized(exp_str, line):
+            if low_kw in line.lower() or _is_same_normalized(keyword, line):
                 return (True, line)
-        if low_exp in act_full.lower():
+        if low_kw in act_full.lower():
             return (True, "(블록 내 포함)")
-        return (False, lines[0] + "..." if len(lines) > 0 else "(불일치)")
+        return (False, lines[0] if len(lines) > 0 else "(불일치)")
 
     # 기본값 (평문 비교)
     matched = _is_same_normalized(exp_str, act_full)
@@ -170,79 +174,192 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
             except re.error:
                 continue
 
+def _normalize_parent(parent_str: str) -> str:
+    """부모 노드 식별자 정규화 (대소문자, 공백, 인터페이스 축약형 보정)."""
+    s = re.sub(r'\s+', ' ', str(parent_str).strip().lower())
+    # 인터페이스 약어 정규화
+    s = re.sub(r'^interface\s+gi(?:gabitethernet)?', 'interface gigabitethernet', s)
+    s = re.sub(r'^interface\s+te(?:ngigabitethernet)?', 'interface tengigabitethernet', s)
+    s = re.sub(r'^interface\s+lo(?:opback)?', 'interface loopback', s)
+    s = re.sub(r'^interface\s+tu(?:nnel)?', 'interface tunnel', s)
+    s = re.sub(r'^interface\s+vl(?:an)?', 'interface vlan', s)
+    return s
+
+
+def _extract_target_inventory(target_parsed: dict) -> dict:
+    """타겟 설정의 구조화된 계층 인덱스 생성."""
+    inventory = {
+        "parents": {},        # norm_parent -> list of dict(line, value, raw)
+        "globals": [],        # list of dict(line, value, raw)
+        "items_by_id": {},    # id -> item
+        "all_lines": []       # list of str
+    }
+
+    blocks = target_parsed.get("blocks", [])
+    for b in blocks:
+        for it in b.get("items", []):
+            inventory["items_by_id"][it["id"]] = it
+            p_node = (it.get("parent_node") or "").strip()
+            c_line = (it.get("command_line") or it.get("label") or "").strip()
+            if " > " in c_line and not it.get("command_line"):
+                c_line = c_line.split(" > ")[-1].strip()
+            val = it.get("value", "")
+
+            if p_node:
+                norm_p = _normalize_parent(p_node)
+                if norm_p not in inventory["parents"]:
+                    inventory["parents"][norm_p] = []
+                inventory["parents"][norm_p].append({
+                    "line": c_line,
+                    "value": val,
+                    "raw": it.get("raw_block", "")
+                })
+            else:
+                inventory["globals"].append({
+                    "line": c_line,
+                    "value": val,
+                    "raw": it.get("raw_block", "")
+                })
+
+    return inventory
+
+
+def _find_target_actual(item: dict, inventory: dict, target_sections: dict) -> tuple[Any, str]:
+    """
+    골든 아이템의 parent_node 및 command_line을 바탕으로 타겟 설정에서 실제 설정값을 지능적으로 검색.
+    반환값: (actual_value, found_line_context)
+    """
+    item_id = item.get("id", "")
+    section = item.get("section", "")
+    p_node = (item.get("parent_node") or "").strip()
+    c_line = (item.get("command_line") or item.get("label") or "").strip()
+    if " > " in c_line and not item.get("command_line"):
+        c_line = c_line.split(" > ")[-1].strip()
+
+    # 1. ID로 직접 일치하는 경우 우선 확인
+    if item_id in inventory["items_by_id"]:
+        it = inventory["items_by_id"][item_id]
+        return it.get("value"), it.get("command_line", c_line)
+
+    # 2. 부모 노드가 있는 경우 (Interface, BGP, OSPF, Line, VRF, ACL 등)
+    if p_node:
+        norm_p = _normalize_parent(p_node)
+        target_children = inventory["parents"].get(norm_p, [])
+        if not target_children:
+            # 혹시 interface prefix가 생략되었거나 추가된 경우 다시 검색
+            for tp_key, tp_list in inventory["parents"].items():
+                if tp_key == norm_p or tp_key.endswith(" " + norm_p) or norm_p.endswith(" " + tp_key):
+                    target_children = tp_list
+                    break
+
+        if target_children:
+            # 자식 명령어 중에서 일치하는 항목 탐색
+            # 2-1. 명령어 전체가 일치하는 경우 (Exact line match)
+            for c in target_children:
+                if _is_same_normalized(c["line"], c_line):
+                    return c.get("value"), c["line"]
+
+            # 2-2. 명령어 키워드 접두사가 일치하는 경우 (예: 'ip address', 'bgp router-id', 'description')
+            cmd_parts = c_line.split()
+            if cmd_parts:
+                first_word = cmd_parts[0].lower()
+                prefix = f"{first_word} {cmd_parts[1].lower()}" if len(cmd_parts) >= 2 else first_word
+                for c in target_children:
+                    t_line = c["line"].lower()
+                    if t_line.startswith(prefix + " ") or t_line == prefix:
+                        return c.get("value"), c["line"]
+
+            # 2-3. 네트워크 대역 명령어 (예: 'network 10.46.80.0 mask 255.255.240.0')
+            if c_line.lower().startswith("network "):
+                for c in target_children:
+                    if c["line"].lower().startswith("network "):
+                        # 정확한 네트워크 매칭 또는 동일 시작 확인
+                        if _is_same_normalized(c["line"], c_line):
+                            return c.get("value"), c["line"]
+
+        # 부모는 존재하지 않거나 부모 내에 명령어가 없는 경우
+        return None, ""
+
+    # 3. 부모 노드가 없는 글로벌 명령어 (hostname, version, service, ntp 등)
+    cmd_parts = c_line.split()
+    if cmd_parts:
+        first_word = cmd_parts[0].lower()
+        prefix = f"{first_word} {cmd_parts[1].lower()}" if len(cmd_parts) >= 2 else first_word
+        for g in inventory["globals"]:
+            g_line = g["line"]
+            if _is_same_normalized(g_line, c_line):
+                return g.get("value"), g_line
+            if g_line.lower().startswith(prefix + " ") or g_line.lower() == prefix:
+                return g.get("value"), g_line
+            if g_line.lower().startswith(first_word + " "):
+                return g.get("value"), g_line
+
+    # 4. Fallback: 타겟의 raw 섹션 텍스트에서 검색
+    target_entry = target_sections.get(section, {})
+    if "raw" in target_entry:
+        raw_list = target_entry["raw"]
+        raw_full = "\n".join(raw_list) if isinstance(raw_list, list) else str(raw_list)
+        for line in raw_full.splitlines():
+            s_line = line.strip()
+            if _is_same_normalized(s_line, c_line):
+                return s_line, s_line
+
+    return None, ""
+
+
+def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: list[dict] = None) -> dict:
+    """
+    골든 템플릿 항목 + 조건부 규칙 vs 타겟 파싱 결과 비교.
+    """
+    item_results = []
+    has_fail = False
+    has_review = False
+
+    hostname = target_parsed.get("hostname", "")
+    all_challenge_items = list(golden_items)
+
+    # 1. 호스트명 기반 조건부 규칙 적용
+    if conditional_rules and hostname:
+        for rule in conditional_rules:
+            regex = rule.get("hostname_regex", "")
+            try:
+                if re.search(regex, hostname, re.I):
+                    extra_items = rule.get("items", [])
+                    for i in extra_items:
+                        i["is_conditional"] = True
+                        i["condition_regex"] = regex
+                        all_challenge_items.append(i)
+            except re.error:
+                continue
+
     target_sections = target_parsed.get("sections", {})
-    target_items_by_id = {}
-    if "blocks" in target_parsed:
-        for b in target_parsed.get("blocks", []):
-            for it in b.get("items", []):
-                target_items_by_id[it["id"]] = it
+    # 타겟 인벤토리 생성 (부모별/글로벌별 고속 지능형 인덱스)
+    inventory = _extract_target_inventory(target_parsed)
 
     for item in all_challenge_items:
         item_id = item["id"]
         section = item["section"]
-        match_type = item.get("match_type", "exists")
+        match_type = item.get("match_type", "exact")
         expected = item.get("expected_value", "")
+        if expected is None or expected == "":
+            expected = item.get("value", "")
+
         label = item.get("label", item_id)
         weight = item.get("weight", "required")
-        source = item.get("source", "cisco_config_parser")
         is_cond = item.get("is_conditional", False)
 
-        # 타겟에서 데이터 추출
-        actual_value = None
-        target_entry = target_sections.get(section, {})
+        # 지능형 타겟 설정 검색
+        actual_value, found_context = _find_target_actual(item, inventory, target_sections)
 
-        if item_id in target_items_by_id:
-            actual_value = target_items_by_id[item_id].get("value")
-            matched, display_actual = _match_value(expected, actual_value, match_type, section)
-        elif source in ("genie", "cisco_config_parser", "parsed") and ("genie" in target_entry or "parsed" in target_entry):
-            sub_path = '.'.join(item_id.split('.')[1:])
-            target_dict = target_entry.get("parsed") or target_entry.get("genie")
-            actual_value = _get_nested(target_dict, sub_path)
-            matched, display_actual = _match_value(expected, actual_value, match_type, section)
-        elif source == "raw" and "raw" in target_entry:
-            intf_type = item.get("intf_type")
-            parent_hdr = item.get("parent_header")
-            
-            # 1. L2 인터페이스 특수 처리 (인터페이스 이름 무관)
-            if intf_type == "l2":
-                found_match = False
-                all_l2_actuals = []
-                for block in target_entry["raw"]:
-                    if "switchport" in block.lower():
-                        m, disp = _match_value(expected, block, match_type, section)
-                        if m:
-                            found_match = True
-                            display_actual = disp
-                            break
-                        all_l2_actuals.append(disp)
-                
-                matched = found_match
-                if not matched:
-                    display_actual = "(L2 포트 중 미일치)" if all_l2_actuals else "(L2 포트 없음)"
-            
-            # 2. 특정 헤더 기반 (Interface, Class-map, Policy-map 등)
-            elif parent_hdr:
-                target_block = None
-                # 1단계: 헤더가 정확히 일치하는 블록 찾기 (startswith 가 아닌 전체 줄 비교)
-                for block in target_entry["raw"]:
-                    first_line = block.splitlines()[0].strip()
-                    if _is_same_normalized(parent_hdr, first_line):
-                        target_block = block
-                        break
-                
-                matched, display_actual = _match_value(expected, target_block, match_type, section)
-                
-                # 2단계: 실패 시 해당 섹션 전체에서 다시 검색 (인터페이스 제외)
-                if not matched and section not in ('interface (uplink)', 'interface'):
-                    all_raw_text = '\n'.join(target_entry["raw"])
-                    m2, d2 = _match_value(expected, all_raw_text, match_type, section)
-                    if m2:
-                        matched, display_actual = m2, d2
-            else:
-                all_raw = '\n'.join(target_entry["raw"])
-                matched, display_actual = _match_value(expected, all_raw, match_type, section)
-        else:
-            matched, display_actual = _match_value(expected, None, match_type, section)
+        # 비교 대상 값 결정 (actual_value가 있으면 우선, 없으면 found_context)
+        cmp_target = actual_value if actual_value is not None else (found_context if found_context else None)
+
+        # 값 및 match_type 기반 판정
+        matched, display_actual = _match_value(expected, cmp_target, match_type, section)
+
+        # 만약 display_actual이 원본 라인 정보가 있으면 더 풍성하게 표시
+        if matched and found_context and not display_actual.startswith("("):
+            display_actual = found_context
 
         if matched:
             status = "pass"
@@ -261,6 +378,8 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
             "id": item_id,
             "label": label + (" (조건부)" if is_cond else ""),
             "section": section,
+            "match_type": match_type,
+            "weight": weight,
             "status": status,
             "expected": str(expected),
             "actual": display_actual,

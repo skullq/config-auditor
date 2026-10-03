@@ -42,6 +42,29 @@ export function initGolden() {
   selNone.addEventListener('click', () => toggleAll(false));
   addRuleBtn.addEventListener('click', addConditionalRule);
 
+  // 실시간 프리뷰 복사 & 접기 버튼
+  const copyPreviewBtn = document.getElementById('preview-copy-btn');
+  const togglePreviewBtn = document.getElementById('preview-toggle-btn');
+  const previewCodeContainer = document.getElementById('preview-code-container');
+
+  if (copyPreviewBtn) {
+    copyPreviewBtn.addEventListener('click', () => {
+      const code = document.getElementById('golden-live-preview-code')?.textContent || '';
+      navigator.clipboard.writeText(code).then(() => {
+        toast('최종 템플릿 설정이 클립보드에 복사되었습니다.', 'success');
+      }).catch(() => {
+        toast('클립보드 복사 실패', 'error');
+      });
+    });
+  }
+
+  if (togglePreviewBtn && previewCodeContainer) {
+    togglePreviewBtn.addEventListener('click', () => {
+      previewCodeContainer.classList.toggle('collapsed');
+      togglePreviewBtn.textContent = previewCodeContainer.classList.contains('collapsed') ? '⊞ 펼치기' : '⊟ 접기';
+    });
+  }
+
   if (expandBlocksBtn) {
     expandBlocksBtn.addEventListener('click', () => {
       parsedBlocks.forEach(b => b.expanded = true);
@@ -64,6 +87,7 @@ export function initGolden() {
     btn.classList.add('active');
     filterBlock = btn.dataset.block !== undefined ? btn.dataset.block : '';
     filterSection = btn.dataset.section || '';
+    renderBlocks();
     renderItems();
   });
 }
@@ -218,14 +242,14 @@ function renderBlocks() {
   }
 
   container.innerHTML = parsedBlocks.map((b, idx) => `
-    <div class="block-card" draggable="true" data-index="${idx}">
+    <div class="block-card ${b.block_id === filterBlock ? 'active-selected' : ''}" draggable="true" data-index="${idx}" data-block-id="${b.block_id}">
       <div class="block-header" data-index="${idx}">
         <div class="block-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
         <span class="block-order-badge">#${idx + 1}</span>
         <span class="block-title">${b.name}</span>
         <span class="block-count-badge">${b.item_count}개 항목</span>
         <input type="checkbox" class="block-toggle-check" data-idx="${idx}" ${b.enabled ? 'checked' : ''} title="블록 전체 선택/해제">
-        <span class="block-chevron ${b.expanded ? 'expanded' : ''}">▼</span>
+        <span class="block-chevron ${b.expanded ? 'expanded' : ''}" title="상세 트리 보기">▼</span>
       </div>
       <div class="block-body ${b.expanded ? 'expanded' : ''}">
         ${b.tree_nodes && b.tree_nodes.length > 0 ? renderTree(b.tree_nodes) : `
@@ -242,15 +266,37 @@ function renderBlocks() {
     </div>
   `).join('');
 
-  // 1. 이벤트 바인딩: 헤더 클릭 (펼치기/접기)
+  // 1. 이벤트 바인딩: 헤더 클릭 (필터 선택 또는 트리 펼치기/접기)
   container.querySelectorAll('.block-header').forEach(header => {
     header.addEventListener('click', (e) => {
       if (e.target.closest('.block-toggle-check') || e.target.closest('.block-drag-handle')) {
         return;
       }
       const idx = +header.dataset.index;
-      parsedBlocks[idx].expanded = !parsedBlocks[idx].expanded;
+      const block = parsedBlocks[idx];
+
+      if (e.target.closest('.block-chevron')) {
+        // 화살표 클릭 시에만 블록 내부 트리 펼치기/접기
+        parsedBlocks[idx].expanded = !parsedBlocks[idx].expanded;
+        renderBlocks();
+        return;
+      }
+
+      // 블록 헤더 클릭 시 우측 상세 설정 필터링 토글
+      filterBlock = (filterBlock === block.block_id) ? '' : block.block_id;
+      
+      // 필터 버튼 active 상태 동기화
+      document.querySelectorAll('#golden-section-filters .filter-btn').forEach(btn => {
+        if ((filterBlock === '' && btn.dataset.block === '') || (btn.dataset.block === filterBlock)) {
+          btn.classList.add('active');
+          btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+
       renderBlocks();
+      renderItems();
     });
   });
 
@@ -279,6 +325,7 @@ function renderBlocks() {
       renderItems();
       const selectedTotal = [...allItems, ...intfItems].filter(i => i.selected).length;
       document.getElementById('golden-item-count').textContent = selectedTotal;
+      updateLivePreview();
     });
   });
 
@@ -322,6 +369,7 @@ function renderBlocks() {
       renderBlocks();
       renderItems();
       buildSectionFilters();
+      updateLivePreview();
       toast('블록 감사 순서가 변경되었습니다.', 'info');
     });
 
@@ -387,6 +435,18 @@ function renderItems() {
   const list = document.getElementById('golden-items-list');
   const combined = [...allItems, ...intfItems];
 
+  const labelEl = document.getElementById('golden-current-filter-label');
+  if (labelEl) {
+    if (filterBlock) {
+      const activeBlock = parsedBlocks.find(b => b.block_id === filterBlock);
+      labelEl.textContent = activeBlock ? `[${activeBlock.name}] 필터링 됨` : '필터링 됨';
+      labelEl.style.color = 'var(--accent)';
+    } else {
+      labelEl.textContent = `전체 (${combined.length}개 항목)`;
+      labelEl.style.color = 'var(--text-secondary)';
+    }
+  }
+
   if (parsedBlocks && parsedBlocks.length > 0) {
     const targetBlocks = filterBlock ? parsedBlocks.filter(b => b.block_id === filterBlock) : parsedBlocks;
     const htmlParts = [];
@@ -415,7 +475,16 @@ function renderItems() {
       blockItems.forEach(item => {
         const realIdx = combined.indexOf(item);
         const isBanner = (item.section || '').toLowerCase() === 'banner';
+        const isExists = item.match_type === 'exists';
         const valText = item.expected_value !== undefined ? item.expected_value : item.value;
+        const displayVal = isExists ? '(임의의 값 허용 - 존재 여부 확인)' : valText;
+        const placeholderText = item.match_type === 'contains' 
+          ? '예: *CE1* 또는 키워드' 
+          : item.match_type === 'regex' 
+          ? '예: ^CE_ (정규표현식)' 
+          : item.match_type === 'exists' 
+          ? '존재 여부만 검사 (어떤 값이든 허용)' 
+          : '정확한 기대값 입력 (예: 17.12)';
 
         htmlParts.push(`
           <div class="item-row ${item.selected ? 'selected' : ''}" data-idx="${realIdx}">
@@ -423,22 +492,24 @@ function renderItems() {
             <span class="item-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span>
 
             ${isBanner ? `
-              <textarea class="item-expected-value" data-idx="${realIdx}" rows="3"
-                        style="flex:1; max-width:280px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:2px 6px; resize:vertical;"
-                        title="원본: ${escapeHtml(item.value)}">${escapeHtml(valText)}</textarea>
+              <textarea class="item-expected-value ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" rows="3"
+                        ${isExists ? 'readonly' : ''}
+                        placeholder="${placeholderText}"
+                        title="원본: ${escapeHtml(item.value)}">${escapeHtml(displayVal)}</textarea>
             ` : `
-              <input type="text" class="item-expected-value" data-idx="${realIdx}" 
-                     value="${escapeHtml(valText)}" 
-                     title="원본: ${escapeHtml(item.value)}"
-                     style="flex:1; max-width:180px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:2px 6px;">
+              <input type="text" class="item-expected-value ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" 
+                     value="${escapeHtml(displayVal)}" 
+                     ${isExists ? 'readonly' : ''}
+                     placeholder="${placeholderText}"
+                     title="원본: ${escapeHtml(item.value)}">
             `}
             
             <div class="item-controls">
               <select class="item-match-type" data-idx="${realIdx}">
-                <option value="exists"   ${item.match_type==='exists'   ? 'selected':''}>exists</option>
-                <option value="exact"    ${item.match_type==='exact'    ? 'selected':''}>exact</option>
-                <option value="contains" ${item.match_type==='contains' ? 'selected':''}>contains</option>
-                <option value="regex"    ${item.match_type==='regex'    ? 'selected':''}>regex</option>
+                <option value="exists"   ${item.match_type==='exists'   ? 'selected':''}>exists (존재확인)</option>
+                <option value="exact"    ${item.match_type==='exact'    ? 'selected':''}>exact (정확일치)</option>
+                <option value="contains" ${item.match_type==='contains' ? 'selected':''}>contains (*CE1*)</option>
+                <option value="regex"    ${item.match_type==='regex'    ? 'selected':''}>regex (^CE_)</option>
               </select>
               <button class="item-weight ${item.weight}" data-idx="${realIdx}">${item.weight}</button>
             </div>
@@ -469,6 +540,7 @@ function renderItems() {
           renderItems();
           const selectedTotal = combined.filter(i => i.selected).length;
           document.getElementById('golden-item-count').textContent = selectedTotal;
+          updateLivePreview();
         }
       });
     });
@@ -503,18 +575,23 @@ function renderItems() {
       grouped[sec].forEach(item => {
         const realIdx = combined.indexOf(item);
         const isBanner = (item.section || '').toLowerCase() === 'banner';
-        const valText = item.expected_value !== undefined ? item.expected_value : item.value;
+        const isExists = item.match_type === 'exists';
+        const valText = isExists 
+          ? '(임의의 값 허용 - 존재 여부 확인)' 
+          : (item.expected_value !== undefined ? item.expected_value : item.value);
 
         htmlParts.push(`
           <div class="item-row ${item.selected ? 'selected' : ''}" data-idx="${realIdx}">
             <input type="checkbox" class="item-check" data-idx="${realIdx}" ${item.selected ? 'checked' : ''}>
             <span class="item-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span>
             ${isBanner ? `
-              <textarea class="item-expected-value" data-idx="${realIdx}" rows="3"
+              <textarea class="item-expected-value ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" rows="3"
+                        ${isExists ? 'readonly' : ''}
                         style="flex:1; max-width:280px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:2px 6px; resize:vertical;">${escapeHtml(valText)}</textarea>
             ` : `
-              <input type="text" class="item-expected-value" data-idx="${realIdx}" 
+              <input type="text" class="item-expected-value ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" 
                      value="${escapeHtml(valText)}" 
+                     ${isExists ? 'readonly' : ''}
                      style="flex:1; max-width:180px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:2px 6px;">
             `}
             <div class="item-controls">
@@ -542,6 +619,7 @@ function renderItems() {
         renderItems();
         const selectedTotal = combined.filter(i => i.selected).length;
         document.getElementById('golden-item-count').textContent = selectedTotal;
+        updateLivePreview();
       });
     });
   }
@@ -567,12 +645,42 @@ function renderItems() {
 
       const selectedTotal = combined.filter(i => i.selected).length;
       document.getElementById('golden-item-count').textContent = selectedTotal;
+      updateLivePreview();
     });
   });
 
   list.querySelectorAll('.item-match-type').forEach(sel => {
     sel.addEventListener('change', () => {
-      combined[+sel.dataset.idx].match_type = sel.value;
+      const idx = +sel.dataset.idx;
+      const item = combined[idx];
+      item.match_type = sel.value;
+
+      const row = sel.closest('.item-row');
+      const ipt = row?.querySelector('.item-expected-value');
+      if (ipt) {
+        if (item.match_type === 'exists') {
+          ipt.classList.add('match-exists');
+          ipt.readOnly = true;
+          ipt.value = '(임의의 값 허용 - 존재 여부 확인)';
+          ipt.placeholder = '존재 여부만 검사 (어떤 값이든 허용)';
+          ipt.title = '해당 명령어가 존재하기만 하면 어떤 값이든 합격';
+        } else {
+          ipt.classList.remove('match-exists');
+          ipt.readOnly = false;
+          ipt.value = item.expected_value !== undefined ? item.expected_value : item.value;
+          if (item.match_type === 'contains') {
+            ipt.placeholder = '예: *CE1* 또는 키워드';
+            ipt.title = '*CE1* 또는 포함될 텍스트';
+          } else if (item.match_type === 'regex') {
+            ipt.placeholder = '예: ^CE_ (정규표현식)';
+            ipt.title = '^CE_ 등 정규표현식 패턴';
+          } else {
+            ipt.placeholder = '정확한 기대값 입력 (예: 17.12)';
+            ipt.title = `원본: ${item.value}`;
+          }
+        }
+      }
+      updateLivePreview();
     });
   });
 
@@ -582,14 +690,19 @@ function renderItems() {
       combined[idx].weight = combined[idx].weight === 'required' ? 'optional' : 'required';
       btn.className = `item-weight ${combined[idx].weight}`;
       btn.textContent = combined[idx].weight;
+      updateLivePreview();
     });
   });
 
   list.querySelectorAll('.item-expected-value').forEach(ipt => {
     ipt.addEventListener('input', () => {
       combined[+ipt.dataset.idx].expected_value = ipt.value;
+      updateLivePreview();
     });
   });
+
+  // 실시간 템플릿 프리뷰 즉시 갱신
+  updateLivePreview();
 }
 
 function toggleAll(checked) {
@@ -683,8 +796,8 @@ window.editTemplate = async (id) => {
       document.getElementById('golden-blocks-card').style.display = 'none';
     }
 
-    allItems = tpl.golden_items.filter(i => !i.section?.startsWith('interface ('));
-    intfItems = tpl.golden_items.filter(i => i.section?.startsWith('interface ('));
+    allItems = (tpl.golden_items || []).filter(i => !i.section?.startsWith('interface (')).map(i => ({ ...i, selected: true }));
+    intfItems = (tpl.golden_items || []).filter(i => i.section?.startsWith('interface (')).map(i => ({ ...i, selected: true }));
     filterSection = '';
 
     document.getElementById('golden-section-count').textContent = parsedBlocks.length || '?';
@@ -694,6 +807,7 @@ window.editTemplate = async (id) => {
 
     buildSectionFilters();
     renderItems();
+    updateLivePreview();
     toast('템플릿을 수정합니다.', 'info');
     window.scrollTo(0, 0);
   } catch (err) {
@@ -711,7 +825,23 @@ async function saveTemplate() {
 
   if (!name) return toast('템플릿 이름을 입력하세요.', 'error');
 
-  const selectedItems = combined.filter(i => i.selected);
+  const selectedItems = combined.filter(i => i.selected).map(item => {
+    const { parent, cmd } = getCommandInfo(item);
+    return {
+      id: item.id,
+      block_id: item.block_id || item.section,
+      section: item.section,
+      parent_node: parent,
+      command_line: cmd,
+      label: item.label,
+      value: item.value,
+      expected_value: item.expected_value !== undefined ? item.expected_value : item.value,
+      match_type: item.match_type || 'exact',
+      weight: item.weight || 'required',
+      source: item.source || 'cisco_config_parser',
+      raw_block: item.raw_block || ''
+    };
+  });
   if (selectedItems.length === 0) return toast('최소 1개 항목을 선택하세요.', 'error');
 
   const btn = document.getElementById('golden-save-btn');
@@ -755,5 +885,178 @@ async function saveTemplate() {
     toast(`저장 실패: ${err.message}`, 'error');
   } finally {
     setLoading(btn, false);
+  }
+}
+
+// ── 실시간 최종 골든 템플릿 설정 프리뷰 ──────────────────────────────
+function getCommandInfo(item) {
+  let parent = (item.parent_node || '').trim();
+  let cmd = (item.command_line || '').trim();
+
+  if (!cmd) {
+    if (item.label && item.label.includes(' > ')) {
+      const parts = item.label.split(' > ');
+      if (!parent) parent = parts[0].trim();
+      cmd = parts.slice(1).join(' > ').trim();
+    } else {
+      cmd = (item.label || '').trim();
+    }
+  }
+
+  // 인터페이스 섹션의 경우 부모가 'GigabitEthernet0/0/0' 처럼 이름만 있을 때 'interface ' 프리픽스 보정
+  if (parent && (item.section === 'interfaces_l2' || item.section === 'interfaces_l3' || item.section === 'interfaces')) {
+    if (!parent.toLowerCase().startsWith('interface ') && !parent.toLowerCase().startsWith('l2 ') && !parent.toLowerCase().startsWith('l3 ')) {
+      parent = `interface ${parent}`;
+    }
+  }
+
+  return { parent, cmd };
+}
+
+function formatCommandLine(item, baseCmd) {
+  const mtype = item.match_type || 'exact';
+  const val = item.expected_value !== undefined ? item.expected_value : item.value;
+  const weightTag = item.weight === 'optional' ? ' [optional]' : '';
+
+  let finalCmd = baseCmd;
+
+  // exact 타입이면서 사용자가 기대값을 수정한 경우 명령어에 반영
+  if (mtype === 'exact' && item.expected_value !== undefined && item.expected_value !== item.value) {
+    const origVal = String(item.value || '').trim();
+    const newVal = String(item.expected_value || '').trim();
+    if (origVal && finalCmd.endsWith(origVal)) {
+      finalCmd = finalCmd.slice(0, finalCmd.length - origVal.length) + newVal;
+    } else if (origVal && finalCmd.includes(' ' + origVal)) {
+      finalCmd = finalCmd.replace(' ' + origVal, ' ' + newVal);
+    }
+  }
+
+  if (mtype === 'exists') {
+    return `${finalCmd}  ! [exists: 임의값 허용/존재 확인${weightTag}]`;
+  } else if (mtype === 'contains') {
+    const cleanKw = String(val).replace(/^\*+|\*+$/g, '');
+    return `${finalCmd}  ! [contains: *${cleanKw}*${weightTag}]`;
+  } else if (mtype === 'regex') {
+    return `${finalCmd}  ! [regex: /${val}/${weightTag}]`;
+  } else {
+    return weightTag ? `${finalCmd}  !${weightTag}` : finalCmd;
+  }
+}
+
+export function updateLivePreview() {
+  const codeEl = document.getElementById('golden-live-preview-code');
+  const statsEl = document.getElementById('preview-active-stats');
+  if (!codeEl) return;
+
+  const combined = [...allItems, ...intfItems];
+  const hostname = document.getElementById('golden-hostname')?.textContent || '(알 수 없음)';
+
+  if (!parsedBlocks || parsedBlocks.length === 0) {
+    const selectedItems = combined.filter(i => i.selected);
+    if (statsEl) statsEl.textContent = `선택된 항목: ${selectedItems.length}개`;
+    if (selectedItems.length === 0) {
+      codeEl.textContent = '! 선택된 설정 항목이 없습니다. 상단에서 블록 또는 항목을 선택하세요.';
+      return;
+    }
+    const lines = [
+      `! ====================================================================`,
+      `! Network Config Auditor - Golden Template Live Preview`,
+      `! Hostname: ${hostname} | Total Selected: ${selectedItems.length} Items`,
+      `! ====================================================================`,
+      ``
+    ];
+
+    // 부모 그룹별로 정렬하여 실제 Cisco 설정 포맷으로 출력
+    const parentGroups = [];
+    const parentMap = new Map();
+    selectedItems.forEach(item => {
+      const { parent, cmd } = getCommandInfo(item);
+      if (!parentMap.has(parent)) {
+        const group = { parent, items: [] };
+        parentMap.set(parent, group);
+        parentGroups.push(group);
+      }
+      parentMap.get(parent).items.push({ item, cmd });
+    });
+
+    parentGroups.forEach(grp => {
+      if (grp.parent) {
+        lines.push(grp.parent);
+        grp.items.forEach(({ item, cmd }) => {
+          lines.push(` ${formatCommandLine(item, cmd)}`);
+        });
+        lines.push('!');
+      } else {
+        grp.items.forEach(({ item, cmd }) => {
+          lines.push(formatCommandLine(item, cmd));
+        });
+      }
+    });
+
+    codeEl.textContent = lines.join('\n');
+    return;
+  }
+
+  // 블록 순서대로 수집
+  const activeBlocks = parsedBlocks.filter(b => b.enabled);
+  let totalActiveItems = 0;
+  const lines = [
+    `! ====================================================================`,
+    `! Network Config Auditor - Golden Template Live Preview`,
+    `! Hostname: ${hostname} | Target Blocks: ${activeBlocks.length}개 / Items: (계산 중)`,
+    `! ====================================================================`,
+    ``
+  ];
+
+  activeBlocks.forEach((block, idx) => {
+    const blockItemIds = new Set((block.items || []).map(i => i.id));
+    const blockItems = combined.filter(i => blockItemIds.has(i.id) && i.selected);
+    if (blockItems.length === 0) return;
+
+    totalActiveItems += blockItems.length;
+    lines.push(`! --------------------------------------------------`);
+    lines.push(`! [Block #${block.order || (idx + 1)}] ${block.name} (${blockItems.length}개 항목)`);
+    lines.push(`! --------------------------------------------------`);
+
+    // 부모 노드별 그룹화 (실제 Cisco running-config 계층 구조 생성)
+    const parentGroups = [];
+    const parentMap = new Map();
+
+    blockItems.forEach(item => {
+      const { parent, cmd } = getCommandInfo(item);
+      if (!parentMap.has(parent)) {
+        const group = { parent, items: [] };
+        parentMap.set(parent, group);
+        parentGroups.push(group);
+      }
+      parentMap.get(parent).items.push({ item, cmd });
+    });
+
+    parentGroups.forEach(grp => {
+      if (grp.parent) {
+        lines.push(grp.parent);
+        grp.items.forEach(({ item, cmd }) => {
+          lines.push(` ${formatCommandLine(item, cmd)}`);
+        });
+        lines.push('!');
+      } else {
+        grp.items.forEach(({ item, cmd }) => {
+          lines.push(formatCommandLine(item, cmd));
+        });
+      }
+    });
+
+    lines.push(``);
+  });
+
+  if (statsEl) {
+    statsEl.textContent = `선택된 블록: ${activeBlocks.length}개 / 항목: ${totalActiveItems}개`;
+  }
+  lines[2] = `! Hostname: ${hostname} | Target Blocks: ${activeBlocks.length}개 / Items: ${totalActiveItems}개`;
+
+  if (totalActiveItems === 0) {
+    codeEl.textContent = '! 선택된 설정 항목이 없습니다. 상단에서 블록 또는 항목을 체크하세요.';
+  } else {
+    codeEl.textContent = lines.join('\n');
   }
 }

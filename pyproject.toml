@@ -10,7 +10,7 @@ dependencies = [
     "python-multipart",
     "httpx",
     "pydantic",
-    "cisco-config-parser==3.0.0",
+    "cisco-config-parser>=3.0.0",
     "playwright>=1.63.0",
 ]
 

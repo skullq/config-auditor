@@ -228,14 +228,23 @@ export function renderResult(result, containerId = 'compare-result-area') {
               cleanLabel = cleanLabel.split(' → ').pop();
           }
 
+          const mtype = item.match_type || 'exact';
+          const matchBadgeClass = `guide-badge badge-${mtype}`;
+
           return `
             <div class="result-item ${item.status}">
               <span class="result-item-icon">${statusIcons[item.status] || '?'}</span>
-              <div>
-                <div class="result-item-label">${cleanLabel}</div>
-                ${item.status !== 'pass'
-                  ? `<div class="result-item-msg">기대: <code>${item.expected}</code> / 실제: <code>${item.actual}</code> — ${item.message}</div>`
-                  : ''}
+              <div style="flex:1; min-width:0;">
+                <div class="result-item-label" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <span>${cleanLabel}</span>
+                  <span class="guide-badge ${matchBadgeClass}" style="font-size:10px; padding:1px 6px;">${mtype}</span>
+                  ${item.weight === 'optional' ? '<span style="font-size:10px; color:var(--text-muted); background:var(--bg-primary); padding:1px 4px; border-radius:3px;">optional</span>' : ''}
+                </div>
+                <div class="result-item-msg" style="margin-top:3px; font-size:11px;">
+                  ${item.status === 'pass'
+                    ? `<span style="color:var(--success);">확인됨:</span> <code>${item.actual}</code>`
+                    : `<span style="color:var(--danger); font-weight:600;">불일치:</span> 기대 <code>${item.expected}</code> / 실제 <code>${item.actual || '(없음)'}</code> <span style="color:var(--text-muted);">(${item.message})</span>`}
+                </div>
               </div>
               <span class="result-item-status ${item.status}">${item.status.toUpperCase()}</span>
             </div>
