@@ -34,3 +34,5 @@ Thumbs.db
 # Samples (real device configs)
 samples/
 
+# Scratch & Temporary Test Scripts
+scratch/
