@@ -132,6 +132,7 @@ def get_template(tid: str) -> dict | None:
 
 def delete_template(tid: str):
     with get_conn() as conn:
+        conn.execute("DELETE FROM compare_results WHERE template_id=?", (tid,))
         conn.execute("DELETE FROM templates WHERE id=?", (tid,))
 
 
@@ -157,16 +158,39 @@ def list_compare_results(bulk_job_id: str = "") -> list[dict]:
     with get_conn() as conn:
         if bulk_job_id:
             rows = conn.execute(
-                "SELECT id, hostname, template_name, overall, score, created_at "
+                "SELECT id, hostname, template_id, template_name, overall, score, created_at, "
+                "json_extract(detail, '$.filename') AS filename "
                 "FROM compare_results WHERE bulk_job_id=? ORDER BY created_at DESC",
                 (bulk_job_id,)
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, hostname, template_name, overall, score, created_at "
+                "SELECT id, hostname, template_id, template_name, overall, score, created_at, "
+                "json_extract(detail, '$.filename') AS filename "
                 "FROM compare_results ORDER BY created_at DESC LIMIT 100"
             ).fetchall()
-    return [dict(r) for r in rows]
+    res = []
+    for r in rows:
+        item = dict(r)
+        if not item.get("filename"):
+            item["filename"] = item.get("hostname", "")
+        res.append(item)
+    return res
+
+
+def get_existing_filenames_for_template(template_id: str) -> list[str]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT json_extract(detail, '$.filename') AS filename, hostname "
+            "FROM compare_results WHERE template_id=?",
+            (template_id,)
+        ).fetchall()
+    filenames = []
+    for r in rows:
+        fn = r["filename"] or r["hostname"]
+        if fn:
+            filenames.append(fn)
+    return filenames
 
 
 def get_compare_result(rid: str) -> dict | None:
@@ -183,6 +207,18 @@ def get_compare_result(rid: str) -> dict | None:
 def delete_compare_result(rid: str):
     with get_conn() as conn:
         conn.execute("DELETE FROM compare_results WHERE id=?", (rid,))
+
+
+def update_compare_result(rid: str, template_id: str, template_name: str,
+                          overall: str, score: float, detail: dict):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE compare_results SET template_id=?, template_name=?, overall=?, score=?, "
+            "detail=?, created_at=? WHERE id=?",
+            (template_id, template_name, overall, score,
+             json.dumps(detail, ensure_ascii=False),
+             datetime.utcnow().isoformat(), rid)
+        )
 
 
 # ── Settings ───────────────────────────────────────────────────────────

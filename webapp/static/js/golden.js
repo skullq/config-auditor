@@ -23,24 +23,33 @@ export function initGolden() {
   const cancelBtn = document.getElementById('golden-cancel-btn');
   const selAll  = document.getElementById('golden-select-all');
   const selNone = document.getElementById('golden-select-none');
-  const addRuleBtn = document.getElementById('golden-add-rule-btn');
-  const expandBlocksBtn = document.getElementById('golden-blocks-expand-all');
-  const collapseBlocksBtn = document.getElementById('golden-blocks-collapse-all');
+  const expandTreeBtn = document.getElementById('golden-tree-expand-all');
+  const collapseTreeBtn = document.getElementById('golden-tree-collapse-all');
 
   initDropZone(zone, input, files => handleUnifiedUpload(files[0]));
 
   saveBtn.addEventListener('click', saveTemplate);
-  cancelBtn.addEventListener('click', () => {
-    currentEditingId = null;
-    cancelBtn.style.display = 'none';
-    document.getElementById('golden-template-name').value = '';
-    document.getElementById('golden-hostname-regex').value = '';
-    document.getElementById('golden-description').value = '';
-    toast('수정이 취소되었습니다.', 'info');
-  });
-  selAll.addEventListener('click',  () => toggleAll(true));
-  selNone.addEventListener('click', () => toggleAll(false));
-  addRuleBtn.addEventListener('click', addConditionalRule);
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      currentEditingId = null;
+      cancelBtn.style.display = 'none';
+      const nameInput = document.getElementById('golden-template-name');
+      if (nameInput) nameInput.value = '';
+      const descInput = document.getElementById('golden-description');
+      if (descInput) descInput.value = '';
+      const zone = document.getElementById('golden-drop-zone');
+      if (zone) {
+        zone.innerHTML = `
+          <div class="drop-icon">📁+🔌</div>
+          <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
+          <p>전체 설정 또는 인터페이스 설정 파일 (.cfg, .txt, .conf)</p>
+        `;
+      }
+      toast('수정이 취소되었습니다.', 'info');
+    });
+  }
+  if (selAll) selAll.addEventListener('click',  () => toggleAll(true));
+  if (selNone) selNone.addEventListener('click', () => toggleAll(false));
 
   // 실시간 프리뷰 복사 & 접기 버튼
   const copyPreviewBtn = document.getElementById('preview-copy-btn');
@@ -65,17 +74,24 @@ export function initGolden() {
     });
   }
 
-  if (expandBlocksBtn) {
-    expandBlocksBtn.addEventListener('click', () => {
-      parsedBlocks.forEach(b => b.expanded = true);
-      renderBlocks();
+  if (expandTreeBtn) {
+    expandTreeBtn.addEventListener('click', () => {
+      parsedBlocks.forEach(b => {
+        b.collapsed = false;
+        b.subCollapsed = {};
+      });
+      document.querySelectorAll('.tree-block-content, .tree-subgroup-content').forEach(el => el.classList.remove('collapsed'));
+      document.querySelectorAll('.tree-expand-btn').forEach(btn => btn.classList.remove('collapsed'));
+      toast('모든 설정 트리를 펼쳤습니다.', 'info');
     });
   }
 
-  if (collapseBlocksBtn) {
-    collapseBlocksBtn.addEventListener('click', () => {
-      parsedBlocks.forEach(b => b.expanded = false);
-      renderBlocks();
+  if (collapseTreeBtn) {
+    collapseTreeBtn.addEventListener('click', () => {
+      parsedBlocks.forEach(b => b.collapsed = true);
+      document.querySelectorAll('.tree-block-content').forEach(el => el.classList.add('collapsed'));
+      document.querySelectorAll('.tree-block-header .tree-expand-btn').forEach(btn => btn.classList.add('collapsed'));
+      toast('모든 설정 트리를 접었습니다.', 'info');
     });
   }
 
@@ -161,13 +177,10 @@ async function handleUnifiedUpload(file) {
     document.getElementById('intf-l2-count').textContent = data.intf_summary.l2_count;
     document.getElementById('golden-intf-summary').style.display = 'block';
     
-    // Drag & Drop 블록 카드 렌더링
+    // 블록 카드 상태
     const blocksCard = document.getElementById('golden-blocks-card');
-    if (parsedBlocks.length > 0) {
-      blocksCard.style.display = 'block';
-      renderBlocks();
-    } else {
-      blocksCard.style.display = 'none';
+    if (blocksCard) {
+      blocksCard.style.display = parsedBlocks.length > 0 ? 'block' : 'none';
     }
 
     document.getElementById('golden-results-area').style.display = 'block';
@@ -191,194 +204,10 @@ async function handleUnifiedUpload(file) {
   }
 }
 
-// ── Drag & Drop 블록 렌더링 ──────────────────────────────────────────
+// ── Drag & Drop 블록 (3-Tier 트리로 통합) ──────────────────────────
 
 function renderBlocks() {
-  const container = document.getElementById('golden-blocks-list');
-  if (!container) return;
-
-  function escapeHtml(s) {
-    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  function renderTree(treeNodes) {
-    if (!treeNodes || treeNodes.length === 0) return '';
-    return `
-      <div class="tree-container">
-        ${treeNodes.map(node => {
-          if (node.children && node.children.length > 0) {
-            return `
-              <div class="tree-section-node">
-                <div class="tree-section-header">
-                  <span>📂</span>
-                  <span>${escapeHtml(node.line)}</span>
-                  <span class="badge text-xs" style="margin-left:auto">${node.children.length}개 설정</span>
-                </div>
-                <div class="tree-children-list">
-                  ${node.children.map((c, cIdx) => {
-                    const isLast = (cIdx === node.children.length - 1);
-                    const branch = isLast ? '└──' : '├──';
-                    return `
-                      <div class="tree-child-item">
-                        <span class="tree-branch-symbol">${branch}</span>
-                        <span>${escapeHtml(c.line)}</span>
-                      </div>
-                    `;
-                  }).join('')}
-                </div>
-              </div>
-            `;
-          } else {
-            return `
-              <div class="tree-leaf-item">
-                <span>📄</span>
-                <span>${escapeHtml(node.line)}</span>
-              </div>
-            `;
-          }
-        }).join('')}
-      </div>
-    `;
-  }
-
-  container.innerHTML = parsedBlocks.map((b, idx) => `
-    <div class="block-card ${b.block_id === filterBlock ? 'active-selected' : ''}" draggable="true" data-index="${idx}" data-block-id="${b.block_id}">
-      <div class="block-header" data-index="${idx}">
-        <div class="block-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
-        <span class="block-order-badge">#${idx + 1}</span>
-        <span class="block-title">${b.name}</span>
-        <span class="block-count-badge">${b.item_count}개 항목</span>
-        <input type="checkbox" class="block-toggle-check" data-idx="${idx}" ${b.enabled ? 'checked' : ''} title="블록 전체 선택/해제">
-        <span class="block-chevron ${b.expanded ? 'expanded' : ''}" title="상세 트리 보기">▼</span>
-      </div>
-      <div class="block-body ${b.expanded ? 'expanded' : ''}">
-        ${b.tree_nodes && b.tree_nodes.length > 0 ? renderTree(b.tree_nodes) : `
-          <div class="block-items-inner">
-            ${(b.items || []).map(item => `
-              <div class="item-row ${item.selected !== false ? 'selected' : ''}" style="margin-bottom:4px; padding:6px 10px;">
-                <span class="item-label">${escapeHtml(item.label)}</span>
-                <span class="item-value" title="${escapeHtml(item.value)}">${escapeHtml(item.value)}</span>
-              </div>
-            `).join('')}
-          </div>
-        `}
-      </div>
-    </div>
-  `).join('');
-
-  // 1. 이벤트 바인딩: 헤더 클릭 (필터 선택 또는 트리 펼치기/접기)
-  container.querySelectorAll('.block-header').forEach(header => {
-    header.addEventListener('click', (e) => {
-      if (e.target.closest('.block-toggle-check') || e.target.closest('.block-drag-handle')) {
-        return;
-      }
-      const idx = +header.dataset.index;
-      const block = parsedBlocks[idx];
-
-      if (e.target.closest('.block-chevron')) {
-        // 화살표 클릭 시에만 블록 내부 트리 펼치기/접기
-        parsedBlocks[idx].expanded = !parsedBlocks[idx].expanded;
-        renderBlocks();
-        return;
-      }
-
-      // 블록 헤더 클릭 시 우측 상세 설정 필터링 토글
-      filterBlock = (filterBlock === block.block_id) ? '' : block.block_id;
-      
-      // 필터 버튼 active 상태 동기화
-      document.querySelectorAll('#golden-section-filters .filter-btn').forEach(btn => {
-        if ((filterBlock === '' && btn.dataset.block === '') || (btn.dataset.block === filterBlock)) {
-          btn.classList.add('active');
-          btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        } else {
-          btn.classList.remove('active');
-        }
-      });
-
-      renderBlocks();
-      renderItems();
-    });
-  });
-
-  // 2. 이벤트 바인딩: 블록 체크박스 (일괄 On/Off)
-  container.querySelectorAll('.block-toggle-check').forEach(cb => {
-    cb.addEventListener('change', (e) => {
-      e.stopPropagation();
-      const idx = +cb.dataset.idx;
-      const block = parsedBlocks[idx];
-      block.enabled = cb.checked;
-
-      // 블록 내부 아이템들의 선택 상태 동기화
-      const blockItemIds = new Set((block.items || []).map(i => i.id));
-      allItems.forEach(i => {
-        if (blockItemIds.has(i.id)) {
-          i.selected = block.enabled;
-        }
-      });
-      intfItems.forEach(i => {
-        if (blockItemIds.has(i.id)) {
-          i.selected = block.enabled;
-        }
-      });
-
-      buildSectionFilters();
-      renderItems();
-      const selectedTotal = [...allItems, ...intfItems].filter(i => i.selected).length;
-      document.getElementById('golden-item-count').textContent = selectedTotal;
-      updateLivePreview();
-    });
-  });
-
-  // 3. Drag & Drop 이벤트 바인딩
-  const cards = container.querySelectorAll('.block-card');
-  cards.forEach(card => {
-    card.addEventListener('dragstart', (e) => {
-      draggedBlockIndex = +card.dataset.index;
-      card.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', draggedBlockIndex);
-    });
-
-    card.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      card.classList.add('drag-over');
-    });
-
-    card.addEventListener('dragleave', () => {
-      card.classList.remove('drag-over');
-    });
-
-    card.addEventListener('drop', (e) => {
-      e.preventDefault();
-      card.classList.remove('drag-over');
-      const targetIndex = +card.dataset.index;
-      if (draggedBlockIndex === null || draggedBlockIndex === targetIndex) return;
-
-      // 배열 순서 재정렬
-      const movedItem = parsedBlocks.splice(draggedBlockIndex, 1)[0];
-      parsedBlocks.splice(targetIndex, 0, movedItem);
-
-      // order 값 재부여
-      parsedBlocks.forEach((b, i) => b.order = i + 1);
-
-      // allItems 순서도 블록 순서에 맞춰 재정렬
-      reorderItemsByBlocks();
-
-      draggedBlockIndex = null;
-      renderBlocks();
-      renderItems();
-      buildSectionFilters();
-      updateLivePreview();
-      toast('블록 감사 순서가 변경되었습니다.', 'info');
-    });
-
-    card.addEventListener('dragend', () => {
-      card.classList.remove('dragging');
-      cards.forEach(c => c.classList.remove('drag-over'));
-      draggedBlockIndex = null;
-    });
-  });
+  // 블록 카드가 세부설정 3-Tier 계층 트리(renderItems)로 완전 통합되었습니다.
 }
 
 function reorderItemsByBlocks() {
@@ -390,6 +219,11 @@ function reorderItemsByBlocks() {
   });
 
   allItems.sort((a, b) => {
+    const orderA = blockOrderMap.has(a.id) ? blockOrderMap.get(a.id) : 999;
+    const orderB = blockOrderMap.has(b.id) ? blockOrderMap.get(b.id) : 999;
+    return orderA - orderB;
+  });
+  intfItems.sort((a, b) => {
     const orderA = blockOrderMap.has(a.id) ? blockOrderMap.get(a.id) : 999;
     const orderB = blockOrderMap.has(b.id) ? blockOrderMap.get(b.id) : 999;
     return orderA - orderB;
@@ -411,7 +245,7 @@ function buildSectionFilters() {
       const count = (b.items || []).length;
       const isActive = (filterBlock === b.block_id) ? 'active' : '';
       const isDisabled = !b.enabled ? 'disabled-block' : '';
-      html += `<button class="filter-btn ${isActive} ${isDisabled}" data-block="${b.block_id}">${escapeHtml(b.name)} (${count})</button>`;
+      html += `<button class="filter-btn ${isActive} ${isDisabled}" data-block="${b.block_id}">#${b.order} ${escapeHtml(b.name)} (${count})</button>`;
     });
     container.innerHTML = html;
   } else {
@@ -429,10 +263,79 @@ function buildSectionFilters() {
   }
 }
 
-// ── 상세 항목 렌더링 ────────────────────────────────────────────────
+// ── 3계층 자식 리프 노드 렌더러 ────────────────────────────────────
+
+function renderLeafRow(item, combined, hasParent, isLast) {
+  const realIdx = combined.indexOf(item);
+  const isBanner = (item.section || '').toLowerCase() === 'banner';
+  const isExists = item.match_type === 'exists';
+  const isFullLine = !!item.full_line_mode;
+
+  const branchSymbol = hasParent ? (isLast ? '└── ' : '├── ') : '📄 ';
+  const displayLabel = item.command_line || item.label;
+  const fullCmd = item.command_line || item.label;
+
+  const valText = isFullLine
+    ? (item.expected_line !== undefined ? item.expected_line : fullCmd)
+    : (item.expected_value !== undefined ? item.expected_value : item.value);
+
+  const displayVal = isExists ? '(임의의 값 허용 - 존재 여부 확인)' : valText;
+  const placeholderText = isFullLine
+    ? '명령어 전체 라인 직접 편집 (예: standby 1 preempt delay minimum 30 reload 60)'
+    : (item.match_type === 'contains' 
+      ? '예: *CE1* 또는 키워드' 
+      : item.match_type === 'regex' 
+      ? '예: ^CE_ (정규표현식)' 
+      : item.match_type === 'exists' 
+      ? '존재 여부만 검사 (어떤 값이든 허용)' 
+      : '정확한 기대값 입력 (예: 17.12)');
+
+  return `
+    <div class="tree-leaf-row ${item.selected ? 'selected' : ''} ${isFullLine ? 'full-line-mode' : ''}" data-idx="${realIdx}">
+      <span class="tree-branch-symbol">${branchSymbol}</span>
+      <input type="checkbox" class="item-check" data-idx="${realIdx}" ${item.selected ? 'checked' : ''} title="항목 검사 여부 선택">
+      
+      ${isFullLine ? `
+        <span class="badge-full-tag" title="전체 라인 직접 편집 모드 활성화됨">전체라인</span>
+      ` : `
+        <span class="tree-leaf-label" title="${escapeHtml(item.label || displayLabel)}">${escapeHtml(displayLabel)}</span>
+      `}
+
+      ${isBanner ? `
+        <textarea class="item-expected-value ${isFullLine ? 'full-line-input' : ''} ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" rows="2"
+                  ${isExists ? 'readonly' : ''}
+                  placeholder="${placeholderText}"
+                  title="${isFullLine ? '전체 배너 내용 직접 편집' : '원본: ' + escapeHtml(item.value)}">${escapeHtml(displayVal)}</textarea>
+      ` : `
+        <input type="text" class="item-expected-value ${isFullLine ? 'full-line-input' : ''} ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" 
+               value="${escapeHtml(displayVal)}" 
+               ${isExists ? 'readonly' : ''}
+               placeholder="${placeholderText}"
+               title="${isFullLine ? '명령어 전체 라인 직접 편집' : '원본: ' + escapeHtml(item.value)}">
+      `}
+      
+      <div class="item-controls">
+        <button class="item-full-line-btn ${isFullLine ? 'active' : ''}" data-idx="${realIdx}" 
+                title="${isFullLine ? '기본(값만 편집) 모드로 전환' : '명령어 전체 라인 직접 편집 모드로 전환'}">
+          ${isFullLine ? '📝 라인모드' : '✏️ 전체라인'}
+        </button>
+        <select class="item-match-type form-select" data-idx="${realIdx}">
+          <option value="exists"   ${item.match_type==='exists'   ? 'selected':''}>exists (존재확인)</option>
+          <option value="exact"    ${item.match_type==='exact'    ? 'selected':''}>exact (정확일치)</option>
+          <option value="contains" ${item.match_type==='contains' ? 'selected':''}>contains (*CE1*)</option>
+          <option value="regex"    ${item.match_type==='regex'    ? 'selected':''}>regex (^CE_)</option>
+        </select>
+        <button class="item-weight ${item.weight}" data-idx="${realIdx}" title="가중치 토글 (required / optional)">${item.weight}</button>
+      </div>
+    </div>
+  `;
+}
+
+// ── 상세 항목 3-Tier 계층형 트리 렌더링 ─────────────────────────────
 
 function renderItems() {
   const list = document.getElementById('golden-items-list');
+  if (!list) return;
   const combined = [...allItems, ...intfItems];
 
   const labelEl = document.getElementById('golden-current-filter-label');
@@ -457,70 +360,221 @@ function renderItems() {
       if (blockItems.length === 0) return;
 
       const selectedCount = blockItems.filter(i => i.selected).length;
+      const isAllSelected = selectedCount === blockItems.length;
+      const isPartSelected = selectedCount > 0 && selectedCount < blockItems.length;
+      const realBlockIdx = parsedBlocks.indexOf(block);
+
+      // 서브그룹 분류 (Tier 2: parent_node 기준, 단독 인터페이스 등 중복 방지)
+      const subgroups = {};
+      const standaloneItems = [];
+      blockItems.forEach(item => {
+        let pNode = (item.parent_node || '').trim();
+        let cLine = (item.command_line || item.label || '').trim();
+        if (pNode && cLine && pNode.toLowerCase() === cLine.toLowerCase()) {
+          pNode = '';
+        }
+        if (pNode) {
+          if (!subgroups[pNode]) subgroups[pNode] = [];
+          subgroups[pNode].push(item);
+        } else {
+          standaloneItems.push(item);
+        }
+      });
 
       htmlParts.push(`
-        <div class="section-group-header flex justify-between items-center" style="background:var(--bg-secondary); padding:8px 12px; margin-top:16px; border-radius:4px; border-left:4px solid var(--accent);">
-          <div>
-            <span class="block-order-badge" style="margin-right:6px">#${block.order || (bIdx + 1)}</span>
-            <strong>${escapeHtml(block.name)}</strong>
-            <span class="text-muted" style="font-size:11px">(${selectedCount}/${blockItems.length}개 선택됨)</span>
+        <div class="tree-block-group ${!block.enabled ? 'disabled-group' : ''}" 
+             draggable="true" 
+             data-block-id="${block.block_id}" 
+             data-block-index="${realBlockIdx}">
+          
+          <!-- Tier 1: 블록 헤더 (전체 Drag & Drop 가능) -->
+          <div class="tree-block-header">
+            <div class="tree-drag-handle" title="끌어서 감사 순서 변경">⋮⋮</div>
+            <button class="tree-expand-btn ${block.collapsed ? 'collapsed' : ''}" data-block-id="${block.block_id}" title="블록 접기/펼치기">▼</button>
+            <span class="block-order-badge">#${block.order || (bIdx + 1)}</span>
+            <input type="checkbox" class="tree-block-check" data-block-id="${block.block_id}" 
+                   ${isAllSelected ? 'checked' : ''} 
+                   ${isPartSelected ? 'data-indeterminate="true"' : ''}
+                   title="블록 전체 선택/해제">
+            
+            <span class="tree-block-title">
+              <span>${escapeHtml(block.name)}</span>
+              <span class="text-muted text-xs">(${selectedCount}/${blockItems.length}개 선택됨)</span>
+            </span>
+
+            <div class="flex gap-2 items-center" style="margin-left:auto;">
+              <button class="btn btn-secondary btn-sm block-item-toggle" data-block-id="${block.block_id}" data-val="true" style="padding:2px 8px; font-size:11px">전체 선택</button>
+              <button class="btn btn-secondary btn-sm block-item-toggle" data-block-id="${block.block_id}" data-val="false" style="padding:2px 8px; font-size:11px">전체 해제</button>
+            </div>
           </div>
-          <div class="flex gap-2">
-            <button class="btn btn-secondary btn-sm block-item-toggle" data-block-id="${block.block_id}" data-val="true" style="padding:2px 8px; font-size:11px">전체 선택</button>
-            <button class="btn btn-secondary btn-sm block-item-toggle" data-block-id="${block.block_id}" data-val="false" style="padding:2px 8px; font-size:11px">전체 해제</button>
+
+          <!-- Tier 1 콘텐츠 (서브그룹 및 리프 명령어들) -->
+          <div class="tree-block-content ${block.collapsed ? 'collapsed' : ''}">
+            
+            <!-- 단독 상위 명령어들 -->
+            ${standaloneItems.map((item, idx) => renderLeafRow(item, combined, false, idx === standaloneItems.length - 1)).join('')}
+
+            <!-- Tier 2: 부모 노드 서브그룹들 (예: interface, router bgp) -->
+            ${Object.entries(subgroups).map(([parentNode, subItems]) => {
+              block.subCollapsed = block.subCollapsed || {};
+              const isSubCollapsed = !!block.subCollapsed[parentNode];
+              const subSelectedCount = subItems.filter(i => i.selected).length;
+              const isSubAllSelected = subSelectedCount === subItems.length;
+
+              return `
+                <div class="tree-subgroup">
+                  <div class="tree-subgroup-header" data-block-id="${block.block_id}" data-parent="${escapeHtml(parentNode)}">
+                    <button class="tree-expand-btn ${isSubCollapsed ? 'collapsed' : ''}" style="margin-right:2px;">▼</button>
+                    <input type="checkbox" class="tree-subgroup-check" data-block-id="${block.block_id}" data-parent="${escapeHtml(parentNode)}"
+                           ${isSubAllSelected ? 'checked' : ''} title="서브그룹 전체 선택/해제">
+                    <span style="font-weight:600;">📂 ${escapeHtml(parentNode)}</span>
+                    <span class="badge text-xs" style="margin-left:auto; opacity:0.8;">${subSelectedCount}/${subItems.length}개</span>
+                  </div>
+
+                  <!-- Tier 3: 자식 명령어 리프 노드들 -->
+                  <div class="tree-subgroup-content ${isSubCollapsed ? 'collapsed' : ''}">
+                    ${subItems.map((item, idx) => renderLeafRow(item, combined, true, idx === subItems.length - 1)).join('')}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+
           </div>
         </div>
       `);
-
-      blockItems.forEach(item => {
-        const realIdx = combined.indexOf(item);
-        const isBanner = (item.section || '').toLowerCase() === 'banner';
-        const isExists = item.match_type === 'exists';
-        const valText = item.expected_value !== undefined ? item.expected_value : item.value;
-        const displayVal = isExists ? '(임의의 값 허용 - 존재 여부 확인)' : valText;
-        const placeholderText = item.match_type === 'contains' 
-          ? '예: *CE1* 또는 키워드' 
-          : item.match_type === 'regex' 
-          ? '예: ^CE_ (정규표현식)' 
-          : item.match_type === 'exists' 
-          ? '존재 여부만 검사 (어떤 값이든 허용)' 
-          : '정확한 기대값 입력 (예: 17.12)';
-
-        htmlParts.push(`
-          <div class="item-row ${item.selected ? 'selected' : ''}" data-idx="${realIdx}">
-            <input type="checkbox" class="item-check" data-idx="${realIdx}" ${item.selected ? 'checked' : ''}>
-            <span class="item-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span>
-
-            ${isBanner ? `
-              <textarea class="item-expected-value ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" rows="3"
-                        ${isExists ? 'readonly' : ''}
-                        placeholder="${placeholderText}"
-                        title="원본: ${escapeHtml(item.value)}">${escapeHtml(displayVal)}</textarea>
-            ` : `
-              <input type="text" class="item-expected-value ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" 
-                     value="${escapeHtml(displayVal)}" 
-                     ${isExists ? 'readonly' : ''}
-                     placeholder="${placeholderText}"
-                     title="원본: ${escapeHtml(item.value)}">
-            `}
-            
-            <div class="item-controls">
-              <select class="item-match-type" data-idx="${realIdx}">
-                <option value="exists"   ${item.match_type==='exists'   ? 'selected':''}>exists (존재확인)</option>
-                <option value="exact"    ${item.match_type==='exact'    ? 'selected':''}>exact (정확일치)</option>
-                <option value="contains" ${item.match_type==='contains' ? 'selected':''}>contains (*CE1*)</option>
-                <option value="regex"    ${item.match_type==='regex'    ? 'selected':''}>regex (^CE_)</option>
-              </select>
-              <button class="item-weight ${item.weight}" data-idx="${realIdx}">${item.weight}</button>
-            </div>
-          </div>
-        `);
-      });
     });
 
     list.innerHTML = htmlParts.join('');
 
-    // 블록별 전체 선택/해제 이벤트
+    // indeterminate 체크박스 상태 적용
+    list.querySelectorAll('.tree-block-check[data-indeterminate="true"]').forEach(cb => {
+      cb.indeterminate = true;
+    });
+
+    // ── 이벤트 바인딩 1: 블록 전체 Drag & Drop 순서 변경 ──────────
+    const blockGroups = list.querySelectorAll('.tree-block-group');
+    blockGroups.forEach(group => {
+      group.addEventListener('dragstart', (e) => {
+        // 자식 콘텐츠(리프 노드/서브그룹) 또는 입력 필드 조작 시 드래그 방지
+        if (e.target.closest('.tree-block-content, input, select, textarea, button')) {
+          e.preventDefault();
+          return;
+        }
+        draggedBlockIndex = +group.dataset.blockIndex;
+        group.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(draggedBlockIndex));
+      });
+
+      group.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        group.classList.add('drag-over');
+      });
+
+      group.addEventListener('dragleave', () => {
+        group.classList.remove('drag-over');
+      });
+
+      group.addEventListener('drop', (e) => {
+        e.preventDefault();
+        group.classList.remove('drag-over');
+        const targetIndex = +group.dataset.blockIndex;
+        if (draggedBlockIndex === null || draggedBlockIndex === targetIndex) return;
+
+        const movedBlock = parsedBlocks.splice(draggedBlockIndex, 1)[0];
+        parsedBlocks.splice(targetIndex, 0, movedBlock);
+
+        // 순서 번호 재부여 (1, 2, 3...)
+        parsedBlocks.forEach((b, i) => b.order = i + 1);
+
+        // 전체 아이템 순서 재정렬
+        reorderItemsByBlocks();
+
+        draggedBlockIndex = null;
+        renderItems();
+        buildSectionFilters();
+        updateLivePreview();
+        toast(`블록 [${movedBlock.name}] 감사 순서가 #${targetIndex + 1}(으)로 변경되었습니다.`, 'info');
+      });
+
+      group.addEventListener('dragend', () => {
+        group.classList.remove('dragging');
+        blockGroups.forEach(g => g.classList.remove('drag-over'));
+        draggedBlockIndex = null;
+      });
+    });
+
+    // ── 이벤트 바인딩 2: 블록 접기/펼치기 ────────────────────────
+    list.querySelectorAll('.tree-block-header').forEach(hdr => {
+      hdr.addEventListener('click', (e) => {
+        if (e.target.closest('input, button, .tree-drag-handle')) return;
+        const group = hdr.closest('.tree-block-group');
+        const bid = group.dataset.blockId;
+        const block = parsedBlocks.find(b => b.block_id === bid);
+        if (block) {
+          block.collapsed = !block.collapsed;
+          group.querySelector('.tree-block-content').classList.toggle('collapsed', block.collapsed);
+          hdr.querySelector('.tree-expand-btn').classList.toggle('collapsed', block.collapsed);
+        }
+      });
+    });
+
+    list.querySelectorAll('.tree-block-header .tree-expand-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const group = btn.closest('.tree-block-group');
+        const bid = group.dataset.blockId;
+        const block = parsedBlocks.find(b => b.block_id === bid);
+        if (block) {
+          block.collapsed = !block.collapsed;
+          group.querySelector('.tree-block-content').classList.toggle('collapsed', block.collapsed);
+          btn.classList.toggle('collapsed', block.collapsed);
+        }
+      });
+    });
+
+    // ── 이벤트 바인딩 3: 서브그룹 접기/펼치기 ────────────────────
+    list.querySelectorAll('.tree-subgroup-header').forEach(subHdr => {
+      subHdr.addEventListener('click', (e) => {
+        if (e.target.closest('input')) return;
+        const parentNode = subHdr.dataset.parent;
+        const bid = subHdr.dataset.blockId;
+        const block = parsedBlocks.find(b => b.block_id === bid);
+        const content = subHdr.nextElementSibling;
+        const arrow = subHdr.querySelector('.tree-expand-btn');
+        const isCollapsed = content.classList.toggle('collapsed');
+        arrow.classList.toggle('collapsed', isCollapsed);
+        if (block) {
+          block.subCollapsed = block.subCollapsed || {};
+          block.subCollapsed[parentNode] = isCollapsed;
+        }
+      });
+    });
+
+    // ── 이벤트 바인딩 4: 블록 체크박스 및 전체 선택/해제 ───────────
+    list.querySelectorAll('.tree-block-check').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const bid = cb.dataset.blockId;
+        const block = parsedBlocks.find(b => b.block_id === bid);
+        if (block) {
+          block.enabled = cb.checked;
+          const blockItemIds = new Set((block.items || []).map(i => i.id));
+          combined.forEach(item => {
+            if (blockItemIds.has(item.id)) {
+              item.selected = cb.checked;
+            }
+          });
+          renderItems();
+          buildSectionFilters();
+          const selectedTotal = combined.filter(i => i.selected).length;
+          document.getElementById('golden-item-count').textContent = selectedTotal;
+          updateLivePreview();
+        }
+      });
+    });
+
     list.querySelectorAll('.block-item-toggle').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -530,20 +584,41 @@ function renderItems() {
         if (block) {
           block.enabled = val;
           const blockItemIds = new Set((block.items || []).map(i => i.id));
-          combined.forEach(i => {
-            if (blockItemIds.has(i.id)) {
-              i.selected = val;
+          combined.forEach(item => {
+            if (blockItemIds.has(item.id)) {
+              item.selected = val;
             }
           });
-          renderBlocks();
-          buildSectionFilters();
           renderItems();
+          buildSectionFilters();
           const selectedTotal = combined.filter(i => i.selected).length;
           document.getElementById('golden-item-count').textContent = selectedTotal;
           updateLivePreview();
         }
       });
     });
+
+    // ── 이벤트 바인딩 5: 서브그룹 체크박스 ─────────────────────────
+    list.querySelectorAll('.tree-subgroup-check').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const bid = cb.dataset.blockId;
+        const parentNode = cb.dataset.parent;
+        const block = parsedBlocks.find(b => b.block_id === bid);
+        const blockItemIds = new Set((block.items || []).map(i => i.id));
+        combined.forEach(item => {
+          if (blockItemIds.has(item.id) && item.parent_node === parentNode) {
+            item.selected = cb.checked;
+          }
+        });
+        renderItems();
+        buildSectionFilters();
+        const selectedTotal = combined.filter(i => i.selected).length;
+        document.getElementById('golden-item-count').textContent = selectedTotal;
+        updateLivePreview();
+      });
+    });
+
   } else {
     // 레거시 그룹핑 렌더링
     const filtered = filterSection
@@ -572,39 +647,8 @@ function renderItems() {
         </div>
       `);
 
-      grouped[sec].forEach(item => {
-        const realIdx = combined.indexOf(item);
-        const isBanner = (item.section || '').toLowerCase() === 'banner';
-        const isExists = item.match_type === 'exists';
-        const valText = isExists 
-          ? '(임의의 값 허용 - 존재 여부 확인)' 
-          : (item.expected_value !== undefined ? item.expected_value : item.value);
-
-        htmlParts.push(`
-          <div class="item-row ${item.selected ? 'selected' : ''}" data-idx="${realIdx}">
-            <input type="checkbox" class="item-check" data-idx="${realIdx}" ${item.selected ? 'checked' : ''}>
-            <span class="item-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span>
-            ${isBanner ? `
-              <textarea class="item-expected-value ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" rows="3"
-                        ${isExists ? 'readonly' : ''}
-                        style="flex:1; max-width:280px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:2px 6px; resize:vertical;">${escapeHtml(valText)}</textarea>
-            ` : `
-              <input type="text" class="item-expected-value ${isExists ? 'match-exists' : ''}" data-idx="${realIdx}" 
-                     value="${escapeHtml(valText)}" 
-                     ${isExists ? 'readonly' : ''}
-                     style="flex:1; max-width:180px; font-family:'Fira Code', monospace; font-size:11px; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:2px 6px;">
-            `}
-            <div class="item-controls">
-              <select class="item-match-type" data-idx="${realIdx}">
-                <option value="exists"   ${item.match_type==='exists'   ? 'selected':''}>exists</option>
-                <option value="exact"    ${item.match_type==='exact'    ? 'selected':''}>exact</option>
-                <option value="contains" ${item.match_type==='contains' ? 'selected':''}>contains</option>
-                <option value="regex"    ${item.match_type==='regex'    ? 'selected':''}>regex</option>
-              </select>
-              <button class="item-weight ${item.weight}" data-idx="${realIdx}">${item.weight}</button>
-            </div>
-          </div>
-        `);
+      grouped[sec].forEach((item, idx) => {
+        htmlParts.push(renderLeafRow(item, combined, false, idx === grouped[sec].length - 1));
       });
     });
 
@@ -624,21 +668,20 @@ function renderItems() {
     });
   }
 
-  // 공통 이벤트 바인딩: 체크박스 변경 시
+  // ── 공통 이벤트 바인딩: 리프 아이템 ─────────────────────────────
   list.querySelectorAll('.item-check').forEach(cb => {
     cb.addEventListener('change', () => {
       const idx = +cb.dataset.idx;
       combined[idx].selected = cb.checked;
-      cb.closest('.item-row').classList.toggle('selected', cb.checked);
+      cb.closest('.tree-leaf-row')?.classList.toggle('selected', cb.checked);
 
-      // 블록 상태 및 필터 동기화
+      // 블록 활성화 상태 동기화
       const item = combined[idx];
       if (parsedBlocks && parsedBlocks.length > 0) {
         const block = parsedBlocks.find(b => (b.items || []).some(it => it.id === item.id));
         if (block) {
           const blockItems = combined.filter(i => (block.items || []).some(it => it.id === i.id));
           block.enabled = blockItems.some(i => i.selected);
-          renderBlocks();
           buildSectionFilters();
         }
       }
@@ -655,7 +698,7 @@ function renderItems() {
       const item = combined[idx];
       item.match_type = sel.value;
 
-      const row = sel.closest('.item-row');
+      const row = sel.closest('.tree-leaf-row');
       const ipt = row?.querySelector('.item-expected-value');
       if (ipt) {
         if (item.match_type === 'exists') {
@@ -694,9 +737,39 @@ function renderItems() {
     });
   });
 
+  // ── 이벤트 바인딩: 전체 라인 직접 편집 토글 버튼 ─────────────
+  list.querySelectorAll('.item-full-line-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = +btn.dataset.idx;
+      const item = combined[idx];
+      item.full_line_mode = !item.full_line_mode;
+      const fullCmd = item.command_line || item.label;
+      if (item.full_line_mode) {
+        if (item.expected_line === undefined) {
+          item.expected_line = fullCmd;
+        }
+        item.expected_value = item.expected_line;
+        toast(`[${fullCmd}] 전체 라인 직접 편집 모드 ON`, 'info');
+      } else {
+        item.expected_value = item.value;
+        toast(`[${fullCmd}] 기본 값 편집 모드로 복귀`, 'info');
+      }
+      renderItems();
+      updateLivePreview();
+    });
+  });
+
   list.querySelectorAll('.item-expected-value').forEach(ipt => {
     ipt.addEventListener('input', () => {
-      combined[+ipt.dataset.idx].expected_value = ipt.value;
+      const idx = +ipt.dataset.idx;
+      const item = combined[idx];
+      if (item.full_line_mode) {
+        item.expected_line = ipt.value;
+        item.expected_value = ipt.value;
+      } else {
+        item.expected_value = ipt.value;
+      }
       updateLivePreview();
     });
   });
@@ -718,7 +791,6 @@ function toggleAll(checked) {
         item.selected = checked;
       }
     });
-    renderBlocks();
     buildSectionFilters();
     renderItems();
   } else {
@@ -732,44 +804,6 @@ function toggleAll(checked) {
   document.getElementById('golden-item-count').textContent = selectedTotal;
 }
 
-function addConditionalRule() {
-  const rule = {
-    id: Date.now(),
-    hostname_regex: '',
-    items: []
-  };
-  conditionalRules.push(rule);
-  renderRules();
-}
-
-function renderRules() {
-  const container = document.getElementById('golden-conditional-container');
-  container.innerHTML = conditionalRules.map((rule, idx) => `
-    <div class="card" style="border-style: dashed; border-color: var(--accent); margin-bottom: 12px; padding: 16px;">
-      <div class="flex justify-between items-center mb-2">
-        <strong>교집합 규칙 #${idx + 1}</strong>
-        <button class="btn btn-sm btn-danger" onclick="window.removeRule(${idx})">삭제</button>
-      </div>
-      <div class="form-group">
-        <label class="form-label">호스트명 일치 시 적용 (Regex)</label>
-        <input type="text" class="form-input" placeholder="예: ^NY-.*-AGG" 
-               value="${rule.hostname_regex}" 
-               onchange="window.updateRuleRegex(${idx}, this.value)">
-      </div>
-      <p class="text-muted" style="font-size:11px">※ 이 호스트명 패턴과 일치하면, 메인 리스트에서 선택된 항목 외에 추가적인 검증이 수행됩니다.</p>
-    </div>
-  `).join('');
-}
-
-window.removeRule = idx => {
-  conditionalRules.splice(idx, 1);
-  renderRules();
-};
-
-window.updateRuleRegex = (idx, val) => {
-  conditionalRules[idx].hostname_regex = val;
-};
-
 window.editTemplate = async (id) => {
   try {
     const res = await fetch(`/api/golden/templates/${id}`);
@@ -777,65 +811,129 @@ window.editTemplate = async (id) => {
     const tpl = await res.json();
 
     currentEditingId = tpl.id;
-    document.getElementById('golden-template-name').value = tpl.name;
-    document.getElementById('golden-hostname-regex').value = tpl.hostname_regex || '';
-    document.getElementById('golden-description').value = tpl.description || '';
-    document.getElementById('golden-os-select').value = tpl.os || 'iosxe';
+    const nameInput = document.getElementById('golden-template-name');
+    if (nameInput) nameInput.value = tpl.name || '';
+    const descInput = document.getElementById('golden-description');
+    if (descInput) descInput.value = tpl.description || '';
+    const osSelect = document.getElementById('golden-os-select');
+    if (osSelect) osSelect.value = tpl.os || 'iosxe';
 
-    conditionalRules = tpl.conditional_rules || [];
-    renderRules();
+    parsedData = { parsed: tpl.golden_parsed || {}, hostname: tpl.name || 'from template', items: [] };
 
-    parsedData = { parsed: tpl.golden_parsed, hostname: 'from template', items: [] };
-    
-    // 블록 데이터 복원
-    if (tpl.golden_parsed && tpl.golden_parsed.blocks) {
-      parsedBlocks = tpl.golden_parsed.blocks;
-      document.getElementById('golden-blocks-card').style.display = 'block';
-      renderBlocks();
+    // 1. 블록 데이터 복원
+    if (tpl.golden_parsed && Array.isArray(tpl.golden_parsed.blocks) && tpl.golden_parsed.blocks.length > 0) {
+      parsedBlocks = tpl.golden_parsed.blocks.map((b, idx) => ({
+        ...b,
+        order: b.order || (idx + 1),
+        enabled: b.enabled !== undefined ? b.enabled : true,
+        collapsed: false,
+        subCollapsed: {}
+      }));
     } else {
-      document.getElementById('golden-blocks-card').style.display = 'none';
+      // 블록 정보가 없는 이전 템플릿의 경우 golden_items 기반 블록 자동 재구성
+      const blockMap = new Map();
+      (tpl.golden_items || []).forEach(item => {
+        const bid = item.block_id || item.section || 'General';
+        if (!blockMap.has(bid)) {
+          blockMap.set(bid, {
+            block_id: bid,
+            name: item.section || bid,
+            order: blockMap.size + 1,
+            enabled: true,
+            collapsed: false,
+            subCollapsed: {},
+            items: []
+          });
+        }
+        blockMap.get(bid).items.push(item);
+      });
+      parsedBlocks = Array.from(blockMap.values());
     }
 
-    allItems = (tpl.golden_items || []).filter(i => !i.section?.startsWith('interface (')).map(i => ({ ...i, selected: true }));
-    intfItems = (tpl.golden_items || []).filter(i => i.section?.startsWith('interface (')).map(i => ({ ...i, selected: true }));
-    filterSection = '';
+    // 2. 항목 데이터 복원
+    const isIntf = (i) => i.section === 'interfaces_l2' || i.section === 'interfaces_l3' || (i.section && i.section.startsWith('interface'));
+    allItems = (tpl.golden_items || []).filter(i => !isIntf(i)).map(i => ({
+      ...i,
+      selected: i.selected !== undefined ? i.selected : true,
+      expected_value: i.expected_value !== undefined ? i.expected_value : i.value,
+      full_line_mode: !!i.full_line_mode,
+      expected_line: i.expected_line || (i.full_line_mode ? i.command_line : undefined)
+    }));
+    intfItems = (tpl.golden_items || []).filter(i => isIntf(i)).map(i => ({
+      ...i,
+      selected: i.selected !== undefined ? i.selected : true,
+      expected_value: i.expected_value !== undefined ? i.expected_value : i.value,
+      full_line_mode: !!i.full_line_mode,
+      expected_line: i.expected_line || (i.full_line_mode ? i.command_line : undefined)
+    }));
+    filterBlock = '';
 
-    document.getElementById('golden-section-count').textContent = parsedBlocks.length || '?';
-    document.getElementById('golden-item-count').textContent = allItems.length + intfItems.length;
+    // 3. UI 카운트 및 표시 복원
+    const hostEl = document.getElementById('golden-hostname');
+    if (hostEl) hostEl.textContent = tpl.name || '(템플릿)';
+    const secEl = document.getElementById('golden-section-count');
+    if (secEl) secEl.textContent = parsedBlocks.length;
+    const itemEl = document.getElementById('golden-item-count');
+    if (itemEl) itemEl.textContent = allItems.length + intfItems.length;
+
+    const intfTotal = document.getElementById('intf-total-count');
+    if (intfTotal) intfTotal.textContent = intfItems.length;
+    const intfSummaryCard = document.getElementById('golden-intf-summary');
+    if (intfSummaryCard) intfSummaryCard.style.display = intfItems.length > 0 ? 'block' : 'none';
+
     document.getElementById('golden-results-area').style.display = 'block';
-    document.getElementById('golden-cancel-btn').style.display = 'inline-block';
+    const cancelBtn = document.getElementById('golden-cancel-btn');
+    if (cancelBtn) cancelBtn.style.display = 'inline-block';
+
+    // 드롭존에 수정 중임을 표시
+    const zone = document.getElementById('golden-drop-zone');
+    if (zone) {
+      zone.innerHTML = `
+        <div class="drop-icon">📝</div>
+        <h3>[템플릿 수정] ${escapeHtml(tpl.name)}</h3>
+        <p>저장된 설정을 불러왔습니다. 수정 후 하단 [💾 템플릿 저장하기]를 클릭하세요.</p>
+      `;
+    }
 
     buildSectionFilters();
     renderItems();
     updateLivePreview();
-    toast('템플릿을 수정합니다.', 'info');
-    window.scrollTo(0, 0);
+    toast(`템플릿 "${tpl.name}"을(를) 수정 모드로 불러왔습니다.`, 'info');
+
+    // 세부 설정 섹션으로 스크롤 이동
+    const resArea = document.getElementById('golden-results-area');
+    if (resArea) resArea.scrollIntoView({ behavior: 'smooth' });
   } catch (err) {
-    toast(err.message, 'error');
+    console.error('editTemplate error:', err);
+    toast(`템플릿 불러오기 실패: ${err.message}`, 'error');
   }
 };
 
 async function saveTemplate() {
   const combined = [...allItems, ...intfItems];
-  if (!parsedData && combined.length === 0) return toast('먼저 설정 파일을 업로드하세요.', 'error');
+  if (!parsedData && combined.length === 0) return toast('먼저 설정 파일을 업로드하거나 템플릿을 불러오세요.', 'error');
 
-  const name = document.getElementById('golden-template-name').value.trim();
-  const regex = document.getElementById('golden-hostname-regex').value.trim();
-  const desc = document.getElementById('golden-description').value.trim();
+  const nameInput = document.getElementById('golden-template-name');
+  const name = nameInput ? nameInput.value.trim() : '';
+  const descInput = document.getElementById('golden-description');
+  const desc = descInput ? descInput.value.trim() : '';
 
   if (!name) return toast('템플릿 이름을 입력하세요.', 'error');
 
   const selectedItems = combined.filter(i => i.selected).map(item => {
     const { parent, cmd } = getCommandInfo(item);
+    const finalCmdLine = item.full_line_mode && item.expected_line ? item.expected_line : cmd;
     return {
       id: item.id,
       block_id: item.block_id || item.section,
       section: item.section,
       parent_node: parent,
-      command_line: cmd,
-      label: item.label,
+      command_line: finalCmdLine,
+      full_line_mode: !!item.full_line_mode,
+      expected_line: item.expected_line || finalCmdLine,
+      label: item.full_line_mode && item.expected_line ? item.expected_line : item.label,
       value: item.value,
-      expected_value: item.expected_value !== undefined ? item.expected_value : item.value,
+      expected_value: item.full_line_mode ? (item.expected_line || finalCmdLine) : (item.expected_value !== undefined ? item.expected_value : item.value),
       match_type: item.match_type || 'exact',
       weight: item.weight || 'required',
       source: item.source || 'cisco_config_parser',
@@ -858,11 +956,11 @@ async function saveTemplate() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name,
-        hostname_regex: regex,
+        hostname_regex: '',
         description: desc,
         os_type: osType,
         selected_items: selectedItems,
-        conditional_rules: conditionalRules,
+        conditional_rules: [],
         golden_parsed: goldenParsedToSave,
         template_id: currentEditingId,
       }),
@@ -870,13 +968,11 @@ async function saveTemplate() {
     toast(`골든 템플릿 "${name}" 저장 완료`, 'success');
 
     // 상태 초기화
-    document.getElementById('golden-template-name').value = '';
-    document.getElementById('golden-hostname-regex').value = '';
-    document.getElementById('golden-description').value = '';
-    conditionalRules = [];
+    if (nameInput) nameInput.value = '';
+    if (descInput) descInput.value = '';
     currentEditingId = null;
-    document.getElementById('golden-cancel-btn').style.display = 'none';
-    document.getElementById('golden-conditional-container').innerHTML = '';
+    const cancelBtn = document.getElementById('golden-cancel-btn');
+    if (cancelBtn) cancelBtn.style.display = 'none';
 
     if (window.loadGoldenTemplates) {
       window.loadGoldenTemplates();
@@ -903,6 +999,11 @@ function getCommandInfo(item) {
     }
   }
 
+  // 부모와 명령어가 동일한 경우(단독 인터페이스 등 중복 방지)
+  if (parent && cmd && parent.toLowerCase() === cmd.toLowerCase()) {
+    parent = '';
+  }
+
   // 인터페이스 섹션의 경우 부모가 'GigabitEthernet0/0/0' 처럼 이름만 있을 때 'interface ' 프리픽스 보정
   if (parent && (item.section === 'interfaces_l2' || item.section === 'interfaces_l3' || item.section === 'interfaces')) {
     if (!parent.toLowerCase().startsWith('interface ') && !parent.toLowerCase().startsWith('l2 ') && !parent.toLowerCase().startsWith('l3 ')) {
@@ -920,8 +1021,10 @@ function formatCommandLine(item, baseCmd) {
 
   let finalCmd = baseCmd;
 
-  // exact 타입이면서 사용자가 기대값을 수정한 경우 명령어에 반영
-  if (mtype === 'exact' && item.expected_value !== undefined && item.expected_value !== item.value) {
+  // 전체 라인 직접 편집 모드인 경우 사용자가 입력한 전체 라인을 우선 사용
+  if (item.full_line_mode && item.expected_line !== undefined) {
+    finalCmd = item.expected_line;
+  } else if (mtype === 'exact' && item.expected_value !== undefined && item.expected_value !== item.value) {
     const origVal = String(item.value || '').trim();
     const newVal = String(item.expected_value || '').trim();
     if (origVal && finalCmd.endsWith(origVal)) {
@@ -983,6 +1086,7 @@ export function updateLivePreview() {
       if (grp.parent) {
         lines.push(grp.parent);
         grp.items.forEach(({ item, cmd }) => {
+          if (!cmd || (grp.parent && cmd.toLowerCase() === grp.parent.toLowerCase())) return;
           lines.push(` ${formatCommandLine(item, cmd)}`);
         });
         lines.push('!');
@@ -1036,6 +1140,7 @@ export function updateLivePreview() {
       if (grp.parent) {
         lines.push(grp.parent);
         grp.items.forEach(({ item, cmd }) => {
+          if (!cmd || (grp.parent && cmd.toLowerCase() === grp.parent.toLowerCase())) return;
           lines.push(` ${formatCommandLine(item, cmd)}`);
         });
         lines.push('!');

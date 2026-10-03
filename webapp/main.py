@@ -2,6 +2,7 @@
 main.py — FastAPI 앱 진입점
 """
 
+import re
 import uuid
 import sys
 from pathlib import Path
@@ -152,6 +153,7 @@ async def compare_upload(file: UploadFile = File(...), os: str = "iosxe"):
                 break
 
     return {
+        "filename": file.filename,
         "hostname": hostname,
         "os": os,
         "parsed": parsed,
@@ -164,6 +166,29 @@ class RunCompareRequest(BaseModel):
     parsed: dict
     template_id: str
     save: bool = True
+    filename: Optional[str] = None
+
+
+def generate_unique_filename(template_id: str, original_filename: str) -> str:
+    from db.database import get_existing_filenames_for_template
+    existing = get_existing_filenames_for_template(template_id)
+    if original_filename not in existing:
+        return original_filename
+
+    m = re.match(r"^(.*?)(?:\s*\(\d+\))?(\.[^.]*)?$", original_filename)
+    if m:
+        base = m.group(1).strip()
+        ext = m.group(2) or ""
+    else:
+        base = original_filename
+        ext = ""
+
+    i = 2
+    while True:
+        candidate = f"{base} ({i}){ext}"
+        if candidate not in existing:
+            return candidate
+        i += 1
 
 
 @app.post("/api/compare/run")
@@ -174,24 +199,111 @@ async def compare_run(req: RunCompareRequest):
 
     result = compare(tpl["golden_items"], req.parsed, tpl.get("conditional_rules", []))
     hostname = req.parsed.get("hostname", "unknown")
+    original_filename = req.filename or hostname or "config"
+    filename = generate_unique_filename(req.template_id, original_filename)
 
     rid = None
     if req.save:
+        save_detail = dict(result)
+        save_detail["target_parsed"] = req.parsed
+        save_detail["filename"] = filename
         rid = save_compare_result(
             hostname=hostname,
             template_id=req.template_id,
             template_name=tpl["name"],
             overall=result["overall"],
             score=result["score"],
-            detail=result,
+            detail=save_detail,
         )
 
     return {
         "id": rid,
         "hostname": hostname,
+        "filename": filename,
         "template_name": tpl["name"],
         **result,
     }
+
+
+class RecompareRequest(BaseModel):
+    result_ids: list[str]
+    template_id: Optional[str] = None
+
+
+@app.post("/api/compare/recompare")
+async def compare_recompare(req: RecompareRequest):
+    from db.database import get_compare_result, update_compare_result
+    updated = []
+    
+    for rid in req.result_ids:
+        r = get_compare_result(rid)
+        if not r:
+            continue
+        
+        tid = req.template_id if req.template_id else r.get("template_id")
+        tpl = get_template(tid)
+        if not tpl:
+            continue
+        
+        detail = r.get("detail", {})
+        target_parsed = detail.get("target_parsed")
+        if not target_parsed:
+            target_parsed = {
+                "hostname": r.get("hostname", ""),
+                "sections": {},
+                "blocks": []
+            }
+            for it in detail.get("items", []):
+                sec = it.get("section", "general")
+                if sec not in target_parsed["sections"]:
+                    target_parsed["sections"][sec] = {}
+                target_parsed["sections"][sec][it.get("id")] = it.get("actual")
+
+        new_result = compare(tpl["golden_items"], target_parsed, tpl.get("conditional_rules", []))
+        filename = detail.get("filename") or r.get("hostname")
+        
+        save_detail = dict(new_result)
+        save_detail["target_parsed"] = target_parsed
+        save_detail["filename"] = filename
+        
+        update_compare_result(
+            rid=rid,
+            template_id=tpl["id"],
+            template_name=tpl["name"],
+            overall=new_result["overall"],
+            score=new_result["score"],
+            detail=save_detail,
+        )
+        
+        updated.append({
+            "id": rid,
+            "hostname": r["hostname"],
+            "filename": filename,
+            "template_id": tpl["id"],
+            "template_name": tpl["name"],
+            "overall": new_result["overall"],
+            "score": new_result["score"],
+            "detail": new_result,
+        })
+        
+    return {"updated": updated, "count": len(updated)}
+
+
+class DeleteBatchRequest(BaseModel):
+    result_ids: list[str]
+
+
+@app.post("/api/compare/delete_batch")
+async def compare_delete_batch(req: DeleteBatchRequest):
+    from db.database import delete_compare_result
+    deleted_count = 0
+    for rid in req.result_ids:
+        delete_compare_result(rid)
+        report_file = REPORT_DIR / f"{rid}.md"
+        if report_file.exists():
+            report_file.unlink()
+        deleted_count += 1
+    return {"deleted_count": deleted_count, "message": "삭제 완료"}
 
 
 @app.get("/api/compare/results")
@@ -207,6 +319,7 @@ async def compare_result_delete(rid: str):
     if report_file.exists():
         report_file.unlink()
     return {"message": "삭제 완료"}
+
 
 @app.get("/api/compare/download/{rid}")
 async def compare_result_download(rid: str):

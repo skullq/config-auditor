@@ -481,23 +481,488 @@ body {
 }
 
 .compact-drop-zone {
-  padding: 24px 16px;
+  padding: 12px 16px;
   border-radius: var(--radius);
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .compact-drop-zone .drop-icon {
-  font-size: 28px;
-  margin-bottom: 6px;
+  font-size: 20px;
+  margin-bottom: 2px;
 }
 
 .compact-drop-zone h3 {
-  font-size: 14px;
-  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 
 .compact-drop-zone p {
+  font-size: 11px;
+  margin: 0;
+}
+
+/* ── Active Detail Row Highlight in Compare Table ──── */
+.data-table tbody tr.row-active-detail,
+.table-hoverable tbody tr.row-active-detail {
+  background: rgba(99, 102, 241, 0.16) !important;
+  box-shadow: inset 4px 0 0 var(--accent, #6366f1);
+}
+
+.data-table tbody tr.row-active-detail td {
+  background: transparent !important;
+}
+
+/* ── Scrollable Results Container in Compare Detail ─ */
+.results-container {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 6px;
+  border-radius: var(--radius);
+}
+
+.results-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.results-container::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 3px;
+}
+
+.results-container::-webkit-scrollbar-thumb {
+  background: var(--border-focus);
+  border-radius: 3px;
+}
+
+/* ── Compare Tree View Layout ────────────────────── */
+.flex-col {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+#compare-tree-container {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 24px !important;
+  width: 100% !important;
+}
+
+.compare-tpl-node {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 18px 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  transition: border-color var(--transition);
+}
+
+.compare-tpl-node:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.compare-tpl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.compare-tree-branch {
+  margin-left: 14px;
+  padding-left: 20px;
+  border-left: 2px dashed rgba(99, 102, 241, 0.35);
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+}
+
+.compare-mini-dropzone {
+  background: var(--bg-secondary);
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  transition: all var(--transition);
+  position: relative;
+}
+
+.compare-mini-dropzone::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 50%;
+  width: 18px;
+  height: 2px;
+  border-top: 2px dashed rgba(99, 102, 241, 0.35);
+}
+
+.compare-mini-dropzone:hover,
+.compare-mini-dropzone.drag-over {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.compare-tree-table-wrapper {
+  position: relative;
+  overflow-x: auto;
+}
+
+.compare-tree-table-wrapper::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 24px;
+  width: 18px;
+  height: 2px;
+  border-top: 2px dashed rgba(99, 102, 241, 0.35);
+}
+
+/* ── 컬럼 간격 축소 및 컴팩트 테이블 레이아웃 ─────────── */
+.compare-tree-table-wrapper {
+  position: relative;
+  overflow-x: auto;
+}
+
+.compare-tree-table-wrapper .compare-tree-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed !important; /* 고정 컬럼 너비로 컬럼 간격 완전 제어 */
+}
+
+.compare-tree-table-wrapper .compare-tree-table th,
+.compare-tree-table-wrapper .compare-tree-table td {
+  padding: 8px 10px !important;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+/* 고정 너비 컬럼들로 컬럼간 불필요한 과도한 간격 축소 */
+.compare-tree-table th.col-check,
+.compare-tree-table td.col-check {
+  width: 36px !important;
+  text-align: center !important;
+  padding: 8px 4px !important;
+}
+
+.compare-tree-table th.col-filename,
+.compare-tree-table td.col-filename {
+  /* 남은 여백을 유연하게 채움 */
+  text-align: left !important;
+  min-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compare-tree-table th.col-hostname,
+.compare-tree-table td.col-hostname {
+  width: 150px !important;
+  white-space: nowrap !important;
+  text-align: left !important;
+}
+
+.compare-tree-table th.col-time,
+.compare-tree-table td.col-time {
+  width: 135px !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+}
+
+.compare-tree-table th.col-status,
+.compare-tree-table td.col-status {
+  width: 85px !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+}
+
+.compare-tree-table th.col-score,
+.compare-tree-table td.col-score {
+  width: 75px !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+}
+
+.compare-tree-table th.col-action,
+.compare-tree-table td.col-action {
+  width: 180px !important;
+  white-space: nowrap !important;
+  text-align: right !important;
+  padding-right: 12px !important;
+}
+
+.compare-file-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.compare-hostname-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.compare-hostname-code {
+  font-family: 'Fira Code', monospace;
+  font-size: 11px;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+  display: inline-block;
+}
+
+.compare-filename {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 액션 버튼 그룹 (가로 인라인 정렬) */
+.compare-action-btns {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 6px !important;
+  white-space: nowrap !important;
+  flex-wrap: nowrap !important;
+}
+
+.compare-view-btn,
+.compare-delete-btn {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+  flex-shrink: 0 !important;
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  line-height: 1 !important;
+  height: 28px !important;
+  box-sizing: border-box !important;
+  border-radius: var(--radius) !important;
+}
+
+.compare-delete-btn {
+  background: rgba(248, 81, 73, 0.15) !important;
+  border: 1px solid rgba(248, 81, 73, 0.4) !important;
+  color: #f85149 !important;
+  transition: all 0.15s ease !important;
+}
+
+.compare-delete-btn:hover {
+  background: var(--fail) !important;
+  color: #fff !important;
+  border-color: var(--fail) !important;
+}
+
+/* ── Compare Active Row Highlight ────────────────── */
+.compare-tpl-node tr.row-active-detail {
+  background: rgba(99, 102, 241, 0.16) !important;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.compare-tpl-node tr.row-active-detail td {
+  color: var(--text-primary) !important;
+  font-weight: 500;
+}
+
+/* ── Compare Sticky Header (Top Floating Action Bar) ── */
+.compare-sticky-header {
+  position: sticky;
+  top: 56px; /* app-header height */
+  z-index: 80;
+  background: rgba(13, 17, 23, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  padding: 14px 0 16px 0;
+  margin-bottom: 18px;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.85);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: all 0.2s ease;
+}
+
+/* ── Slide-over Side Drawer (GitHub/Linear Style) ── */
+.compare-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.compare-drawer-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.compare-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 740px;
+  max-width: 92vw;
+  height: 100vh;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-bright);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.65);
+  z-index: 999;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.compare-drawer.open {
+  transform: translateX(0);
+}
+
+.compare-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.drawer-header-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 220px);
+}
+
+.drawer-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drawer-badge {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.drawer-badge.pass { background: var(--pass-bg); color: var(--pass); border: 1px solid rgba(63, 185, 80, 0.4); }
+.drawer-badge.review { background: var(--review-bg); color: var(--review); border: 1px solid rgba(210, 153, 34, 0.4); }
+.drawer-badge.fail { background: var(--fail-bg); color: var(--fail); border: 1px solid rgba(248, 81, 73, 0.4); }
+
+.drawer-filename {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.drawer-meta {
+  margin-top: 4px;
+  color: var(--text-secondary);
   font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.drawer-score {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: 'Fira Code', monospace;
+}
+
+.drawer-close-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawer-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: 'Fira Code', monospace;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+}
+
+.drawer-score-bar-wrap {
+  border-radius: 0;
+  height: 4px;
+  background: var(--bg-primary);
+  flex-shrink: 0;
+}
+
+.compare-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  background: var(--bg-primary);
+}
+
+.compare-drawer-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.compare-drawer-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.compare-drawer-body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 /* ── Summary Status Bar ────────────────────────────── */
@@ -570,20 +1035,13 @@ body {
   flex-shrink: 0;
 }
 
-/* ── Golden Workspace (2-Column Master-Detail) ─────── */
+/* ── Golden Workspace (Full Width Single Panel Tree) ── */
 .golden-workspace {
-  display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  align-items: start;
   width: 100%;
   box-sizing: border-box;
-}
-
-@media (max-width: 720px) {
-  .golden-workspace {
-    grid-template-columns: 1fr;
-  }
 }
 
 .golden-blocks-panel,
@@ -685,6 +1143,7 @@ body {
   min-height: 300px;
   max-height: 720px;
   overflow-y: auto;
+  overflow-x: hidden !important;
   padding-right: 4px;
 }
 
@@ -995,14 +1454,20 @@ body {
 
 /* ── Live Template Config Preview Card ────────────── */
 .golden-preview-card {
-  padding: 18px 20px;
+  padding: 14px 18px;
   border-left: 4px solid #8957e5;
   background: var(--bg-card);
+  margin-top: 10px;
 }
 
 .preview-code-container {
+  width: 100%;
+  box-sizing: border-box;
+  height: 280px;
   max-height: 380px;
+  min-height: 140px;
   overflow-y: auto;
+  overflow-x: hidden !important;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: #090d13;
@@ -1015,11 +1480,397 @@ body {
 
 .preview-code-block {
   margin: 0;
-  padding: 14px 16px;
+  padding: 12px 16px;
   font-family: 'Fira Code', Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
   color: #c9d1d9;
   white-space: pre-wrap;
   word-break: break-all;
+  overflow-wrap: anywhere;
 }
+
+/* ── Hierarchical Tree View (3-Tier with Group Drag & Drop) ─────── */
+#golden-items-list.items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: none;
+  overflow: visible;
+  width: 100%;
+}
+
+.tree-block-group {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0px;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  flex-shrink: 0 !important;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.tree-block-group.dragging {
+  opacity: 0.45;
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.tree-block-group.drag-over {
+  border-top: 3px solid var(--accent);
+  box-shadow: 0 -2px 8px rgba(47, 129, 247, 0.3);
+}
+
+.tree-block-group.disabled-group {
+  opacity: 0.65;
+}
+
+.tree-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.tree-drag-handle {
+  cursor: grab;
+  color: var(--text-secondary);
+  font-size: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tree-drag-handle:active {
+  cursor: grabbing;
+}
+
+.tree-expand-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.2s ease;
+}
+
+.tree-expand-btn.collapsed {
+  transform: rotate(-90deg);
+}
+
+.tree-block-title {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tree-block-content {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tree-block-content.collapsed {
+  display: none;
+}
+
+/* Tier 2: Subgroup (e.g. interface Loopback0, router bgp 65001) */
+.tree-subgroup {
+  border-left: 2px solid var(--border);
+  margin-left: 10px;
+  padding-left: 10px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.tree-subgroup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  font-family: 'Fira Code', monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  border: 1px solid transparent;
+}
+
+.tree-subgroup-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+}
+
+.tree-subgroup-content {
+  margin-top: 4px;
+  padding-left: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tree-subgroup-content.collapsed {
+  display: none;
+}
+
+/* Tier 3: Leaf Row (cli command) */
+.tree-leaf-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 6px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  transition: all 0.15s ease;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.tree-leaf-row:hover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tree-leaf-row.selected {
+  border-left: 3px solid var(--accent);
+}
+
+.tree-leaf-row:not(.selected) {
+  opacity: 0.55;
+}
+
+.tree-branch-symbol {
+  font-family: monospace;
+  color: var(--text-muted);
+  user-select: none;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.tree-leaf-label {
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+.item-expected-value {
+  flex: 0 1 240px;
+  min-width: 140px;
+  max-width: 320px;
+  font-family: 'Fira Code', monospace;
+  font-size: 11px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  box-sizing: border-box;
+}
+
+.item-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── 전체 라인 직접 편집 모드 (Full-Line Direct Edit Mode) ── */
+.badge-full-tag {
+  background: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+  border: 1px solid rgba(88, 166, 255, 0.4);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.tree-leaf-row.full-line-mode {
+  background: rgba(88, 166, 255, 0.05);
+  border-left: 3px solid #58a6ff;
+}
+
+.item-expected-value.full-line-input {
+  flex: 1 1 360px;
+  max-width: 580px;
+  min-width: 260px;
+  border-color: rgba(88, 166, 255, 0.6);
+  background: rgba(88, 166, 255, 0.06);
+  color: #79c0ff;
+  font-weight: 500;
+}
+
+.item-full-line-btn {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.item-full-line-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-bright);
+  background: var(--bg-hover);
+}
+
+.item-full-line-btn.active {
+  background: #1f6feb;
+  color: #fff;
+  border-color: #58a6ff;
+  font-weight: 600;
+  box-shadow: 0 0 6px rgba(88, 166, 255, 0.35);
+}
+
+.filter-btn.disabled-block {
+  opacity: 0.5;
+  border-style: dashed !important;
+}
+
+.tree-block-content,
+.tree-subgroup-content,
+.tree-block-group,
+.golden-workspace {
+  overflow-x: hidden !important;
+}
+
+/* ── 강력한 템플릿 영구 삭제 경고 모달 ──────────────── */
+.danger-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.danger-modal-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(248, 81, 73, 0.5);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 540px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(248, 81, 73, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: dangerModalPop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dangerModalPop {
+  0% { transform: scale(0.92); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.danger-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 24px;
+  background: rgba(248, 81, 73, 0.12);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.3);
+  position: relative;
+}
+
+.danger-modal-icon {
+  font-size: 26px;
+  background: rgba(248, 81, 73, 0.22);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(248, 81, 73, 0.4);
+}
+
+.danger-modal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #f85149;
+}
+
+.danger-modal-subtitle {
+  margin: 2px 0 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.danger-modal-close-x {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.danger-modal-close-x:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.danger-modal-body {
+  padding: 22px 24px 16px 24px;
+}
+
+.danger-alert-box {
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.danger-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+

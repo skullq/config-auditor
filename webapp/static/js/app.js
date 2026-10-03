@@ -55,7 +55,13 @@ export function initDropZone(zoneEl, inputEl, onFiles) {
     zoneEl.classList.remove('drag-over');
     onFiles([...e.dataTransfer.files]);
   });
-  inputEl.addEventListener('change', () => { if (inputEl.files.length) onFiles([...inputEl.files]); });
+  inputEl.addEventListener('change', () => {
+    if (inputEl.files.length) {
+      const files = [...inputEl.files];
+      inputEl.value = '';
+      onFiles(files);
+    }
+  });
 }
 
 // ── 로딩 상태 ────────────────────────────────────────────────────────────

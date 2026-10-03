@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Network Config Auditor</title>
   <meta name="description" content="Cisco 네트워크 설정 파일 골든 컨피그 감사 도구 — cisco-config-parser 기반">
-  <link rel="stylesheet" href="/static/css/style.css?v=6">
+  <link rel="stylesheet" href="/static/css/style.css?v=41">
 </head>
 <body>
 
@@ -86,43 +86,35 @@
         </div>
       </div>
 
-      <!-- 2단 워크스페이스 레이아웃 (좌: 블록 관리 / 우: 세부 설정 편집) -->
+      <!-- 통합 계층형 설정 트리 (Drag & Drop 블록 관리 편입) -->
       <div class="golden-workspace">
         
-        <!-- 좌측: 블록 순서 및 선택 -->
-        <div class="card golden-blocks-panel" id="golden-blocks-card">
-          <div class="panel-header">
-            <div class="panel-title">
-              <span>🧱 설정 블록 관리</span>
-              <span class="text-muted text-xs">(Drag & Drop)</span>
-            </div>
-            <div class="flex gap-1">
-              <button id="golden-blocks-expand-all" class="btn-icon" title="모두 펼치기">⊞</button>
-              <button id="golden-blocks-collapse-all" class="btn-icon" title="모두 접기">⊟</button>
-            </div>
-          </div>
-          <div class="blocks-container" id="golden-blocks-list"></div>
-        </div>
-
-        <!-- 우측: 상세 설정 항목 편집 -->
-        <div class="card golden-detail-panel" id="golden-detail-card">
+        <div class="card golden-detail-panel" id="golden-detail-card" style="width:100%">
           <div class="panel-header" style="flex-direction:column; align-items:stretch; gap:10px; margin-bottom:12px;">
-            <div class="flex justify-between items-center">
-              <div class="panel-title">⚙️ 세부 설정 항목</div>
-              <div id="golden-current-filter-label" class="badge-subtle">전체 항목 표시 중</div>
+            <div class="flex justify-between items-center flex-wrap gap-2">
+              <div class="panel-title">
+                <span>🌲 계층형 설정 트리</span>
+                <span class="text-muted text-xs">(그룹 헤더를 Drag & Drop하여 감사 순서 변경)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="golden-tree-expand-all" class="btn btn-secondary btn-sm" title="모두 펼치기">⊞ 모두 펼치기</button>
+                <button id="golden-tree-collapse-all" class="btn btn-secondary btn-sm" title="모두 접기">⊟ 모두 접기</button>
+                <div id="golden-current-filter-label" class="badge-subtle">전체 항목 표시 중</div>
+              </div>
             </div>
 
             <!-- 매칭 방식 (Match Type) 사용법 안내 박스 -->
             <div class="match-type-guide-box">
               <div class="guide-header">
                 <span class="guide-icon">💡</span>
-                <strong>설정값 비교 방식 (Match Type) 사용법 안내</strong>
+                <strong>설정값 비교 방식 (Match Type) 및 전체 라인 직접 편집 안내</strong>
               </div>
               <div class="guide-grid">
                 <div class="guide-pill"><span class="guide-badge exists">exists</span> <strong>존재 여부만 검사</strong>: 해당 명령어/키가 대상 파일에 존재하면 값과 무관하게 합격 (임의의 값 허용)</div>
                 <div class="guide-pill"><span class="guide-badge exact">exact</span> <strong>정확히 일치</strong>: 지정한 값과 반드시 100% 동일해야 합격 (예: <code>17.12</code>)</div>
                 <div class="guide-pill"><span class="guide-badge contains">contains</span> <strong>키워드 포함 검사</strong>: 특정 패턴/단어가 포함되면 합격 (예: <code>*CE1*</code>, <code>10.68.</code>)</div>
                 <div class="guide-pill"><span class="guide-badge regex">regex</span> <strong>정규표현식 검사</strong>: 정규식 패턴과 일치해야 합격 (예: <code>^CE_</code>, <code>^.*-CE\d+</code>)</div>
+                <div class="guide-pill" style="grid-column: 1 / -1; background: rgba(88, 166, 255, 0.08); border-color: rgba(88, 166, 255, 0.35);"><span class="badge-full-tag">✏️ 전체라인</span> <strong>전체 라인 직접 편집 토글</strong>: 복합 옵션 명령어(예: <code>channel-group 11 mode active</code>, <code>standby 1 preempt delay minimum 30</code>)의 앞/중간/뒤 모든 파라미터를 한 줄 전체 입력창에서 자유롭게 직접 수정할 수 있습니다.</div>
               </div>
             </div>
 
@@ -166,25 +158,10 @@
             <input id="golden-template-name" class="form-input" type="text" placeholder="예: Standard-V1">
           </div>
           <div class="form-group" style="flex:1">
-            <label class="form-label">기본 적용 Hostname Regex</label>
-            <input id="golden-hostname-regex" class="form-input" type="text" placeholder="예: ^.*-CE\d+">
-          </div>
-          <div class="form-group" style="flex:1">
             <label class="form-label">설명</label>
             <input id="golden-description" class="form-input" type="text" placeholder="템플릿 설명">
           </div>
         </div>
-
-        <!-- 호스트명 매칭 동적 액션 (간결화된 아코디언) -->
-        <details class="conditional-details mt-2">
-          <summary class="text-muted" style="cursor:pointer; font-size:13px; font-weight:600;">
-            🎭 호스트명 매칭 동적 규칙 (Conditional Rules) 설정 펼치기
-          </summary>
-          <div class="conditional-content mt-2">
-            <div id="golden-conditional-container" class="flex flex-direction-column gap-2 mb-2"></div>
-            <button id="golden-add-rule-btn" class="btn btn-secondary btn-sm">+ 규칙 추가</button>
-          </div>
-        </details>
 
         <div class="flex justify-between items-center mt-3 pt-3" style="border-top:1px solid var(--border)">
           <span class="text-muted text-xs">필요한 설정 블록 및 항목을 선택한 후 템플릿으로 저장하세요.</span>
@@ -211,65 +188,56 @@
        TAB 2: COMPARE
        ════════════════════════════════════════════════════ -->
   <section id="tab-compare" class="tab-panel">
-    <div class="section-header mb-3">
-      <h1 class="section-title">🔍 설정 파일 비교</h1>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📁 비교할 설정 파일 업로드 및 실행</div>
-      <div class="form-row" style="display:flex; gap:16px; margin-bottom:12px;">
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">OS 타입 선택</label>
-          <select id="compare-os-select" class="form-select">
-            <option value="auto" selected>자동 감지 (Auto Detect)</option>
-            <option value="iosxe">Cisco IOS-XE</option>
-            <option value="nxos">Cisco NX-OS</option>
-            <option value="iosxr">Cisco IOS-XR</option>
-            <option value="ios">Cisco IOS</option>
-            <option value="aireos">Cisco AireOS (WLC)</option>
-          </select>
+    <div class="compare-sticky-header">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h1 class="section-title">🔍 골든 템플릿별 설정 파일 비교</h1>
+          <p class="text-muted text-xs" style="margin-top:2px;">각 골든 템플릿 아래의 업로드 영역에 장비 설정 파일을 드래그하거나 선택하면 즉시 실시간 비교가 실행됩니다.</p>
         </div>
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">대상 Golden 템플릿</label>
-          <select id="compare-template-select" class="form-select">
-            <option value="auto" selected>자동 매칭 (Hostname 기반)</option>
-          </select>
+        <div class="flex gap-2 items-center">
+          <button id="compare-batch-recompare-btn" class="btn btn-primary btn-sm" disabled title="선택된 장비 설정을 해당 골든 템플릿과 다시 비교">
+            🔄 선택 항목 다시 비교 (<span id="compare-selected-count">0</span>)
+          </button>
+          <button id="compare-batch-delete-btn" class="btn btn-danger btn-sm" disabled title="선택된 비교 결과 일괄 삭제">
+            🗑️ 선택 항목 삭제
+          </button>
         </div>
-      </div>
-      <div class="drop-zone" id="compare-drop-zone" style="margin-bottom:12px;">
-        <input type="file" id="compare-file-input" accept=".cfg,.txt,.conf" multiple>
-        <div class="drop-icon">📁</div>
-        <h3>비교할 설정 파일들을 드래그하거나 클릭 (다중 선택 가능)</h3>
-        <p>파일을 올린 후 아래의 [비교 실행] 버튼을 눌러주세요.</p>
-      </div>
-      <div style="display:flex; justify-content:flex-end; gap:8px;">
-         <button id="compare-clear-btn" class="btn btn-secondary">목록 비우기</button>
-         <button id="compare-run-btn" class="btn btn-primary" style="padding-left:24px; padding-right:24px;">🚀 비교 실행</button>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">
-        🕐 비교 진행 현황
-      </div>
-      <div style="overflow-x:auto">
-        <table class="data-table table-hoverable">
-          <thead>
-            <tr>
-              <th>업로드 파일 (Hostname)</th><th>비교 템플릿 (골든)</th><th>진행 사항</th><th>결과</th><th>점수</th><th>액션</th>
-            </tr>
-          </thead>
-          <tbody id="compare-history-body">
-            <tr><td colspan="6" class="empty-state">파일을 업로드하면 대기열에 추가됩니다.</td></tr>
-          </tbody>
-        </table>
+    <!-- 골든 템플릿별 트리 컨테이너 -->
+    <div id="compare-tree-container" class="flex flex-col gap-4">
+      <div class="empty-state">
+        <div class="spinner" style="width:24px;height:24px;margin:0 auto 8px;"></div>
+        <p>골든 템플릿 및 비교 내역을 불러오는 중...</p>
       </div>
     </div>
     
-    <!-- 상세 보기 모달 용도 (혹은 토글 창) -->
-    <div id="compare-result-area" style="display:none; margin-top:20px;"></div>
-
-
+    <!-- 우측 슬라이드오버 드로어 (Slide-over Side Drawer) -->
+    <div id="compare-drawer-backdrop" class="compare-drawer-backdrop" onclick="window.closeCompareResult()"></div>
+    <div id="compare-drawer" class="compare-drawer" aria-hidden="true">
+      <div class="compare-drawer-header">
+        <div class="drawer-header-info">
+          <div class="drawer-title-row">
+            <span id="drawer-badge" class="drawer-badge pass">PASS</span>
+            <h3 id="drawer-filename" class="drawer-filename">파일명.txt</h3>
+          </div>
+          <div id="drawer-meta" class="drawer-meta text-muted text-xs">템플릿 정보 로딩 중...</div>
+        </div>
+        <div class="drawer-header-actions">
+          <div id="drawer-score" class="drawer-score">100%</div>
+          <button class="btn btn-secondary btn-sm drawer-close-btn" onclick="window.closeCompareResult()" title="닫기 (ESC)">
+            ✕ 닫기 <kbd class="drawer-kbd">ESC</kbd>
+          </button>
+        </div>
+      </div>
+      <div class="score-bar drawer-score-bar-wrap">
+        <div id="drawer-score-bar" class="score-fill pass" style="width:100%; height:100%;"></div>
+      </div>
+      <div class="compare-drawer-body">
+        <div id="compare-result-area" class="drawer-result-area"></div>
+      </div>
+    </div>
   </section>
 
   <!-- ════════════════════════════════════════════════════
@@ -390,13 +358,49 @@
 
 </main>
 
+<!-- 강력한 골든 템플릿 삭제 경고 모달 -->
+<div id="danger-confirm-modal" class="danger-modal-backdrop" style="display:none;" onclick="if(event.target===this) window.closeDangerConfirm()">
+  <div class="danger-modal-card">
+    <div class="danger-modal-header">
+      <div class="danger-modal-icon">🚨</div>
+      <div style="flex:1;">
+        <h3 class="danger-modal-title">골든 템플릿 영구 삭제</h3>
+        <p class="danger-modal-subtitle">이 작업은 취소할 수 없으며 연동 데이터가 즉시 파기됩니다.</p>
+      </div>
+      <button class="danger-modal-close-x" onclick="window.closeDangerConfirm()" title="닫기">&times;</button>
+    </div>
+
+    <div class="danger-modal-body">
+      <p style="font-size:14px; margin-bottom:14px; color:var(--text-primary); line-height:1.5;">
+        정말로 <strong id="danger-modal-target-name" style="color:#f85149; font-size:15px; text-decoration:underline;"></strong> 템플릿을 삭제하시겠습니까?
+      </p>
+
+      <div class="danger-alert-box">
+        <div style="font-weight:700; color:#f85149; margin-bottom:8px; display:flex; align-items:center; gap:6px; font-size:13px;">
+          <span>⚠️</span> <span>[중요 경고] Compare 탭 연동 감사 이력 일괄 삭제</span>
+        </div>
+        <ul style="margin:0; padding-left:18px; font-size:12px; color:var(--text-secondary); line-height:1.7;">
+          <li>해당 골든 템플릿의 모든 설정 기준 규칙 및 파싱 구조가 영구 삭제됩니다.</li>
+          <li><strong>Compare 탭에서 이 템플릿과 비교/검사된 모든 장비 설정 파일 결과도 함께 즉시 영구 삭제</strong>됩니다.</li>
+          <li>한 번 삭제된 템플릿과 비교 내역은 <strong>절대로 복구할 수 없습니다</strong>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="danger-modal-footer">
+      <button class="btn btn-secondary" onclick="window.closeDangerConfirm()">취소 (유지)</button>
+      <button id="danger-modal-confirm-btn" class="btn btn-danger" style="font-weight:700;">🚨 영구 삭제 진행</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
   // 캐시 우회를 위해 버전 쿼리 추가
-  import { initTabs, toast } from '/static/js/app.js?v=25';
-  import { initGolden } from '/static/js/golden.js?v=25';
-  import { initCompare } from '/static/js/compare.js?v=25';
-  import { initSettings } from '/static/js/settings.js?v=25';
-  import { initReport } from '/static/js/report.js?v=25';
+  import { initTabs, toast } from '/static/js/app.js?v=41';
+  import { initGolden } from '/static/js/golden.js?v=41';
+  import { initCompare } from '/static/js/compare.js?v=41';
+  import { initSettings } from '/static/js/settings.js?v=41';
+  import { initReport } from '/static/js/report.js?v=41';
 
   window.appToast = toast; // expose globally for inline use
 
@@ -419,13 +423,13 @@
       container.innerHTML = `
         <table class="data-table">
           <thead>
-            <tr><th>이름</th><th>Hostname 패턴</th><th>생성일</th><th>액션</th></tr>
+            <tr><th>이름</th><th>설명</th><th>생성일</th><th>액션</th></tr>
           </thead>
           <tbody>
             ${templates.map(t => `
               <tr>
                 <td><strong>${t.name}</strong></td>
-                <td><code>${t.hostname_regex || '—'}</code></td>
+                <td><span class="text-muted text-sm">${t.description || '—'}</span></td>
                 <td>${new Date(t.created_at).toLocaleString('ko-KR', {dateStyle:'short',timeStyle:'short'})}</td>
                 <td>
                   <button class="btn btn-sm btn-secondary" onclick="editTemplate('${t.id}')">✏️ 수정</button>
@@ -438,13 +442,61 @@
       `;
     } catch {}
   }
+  window.loadGoldenTemplates = loadGoldenTemplates;
 
-  window.deleteTemplate = async (id, name) => {
-    if (!confirm(`"${name}" 템플릿을 삭제하시겠습니까?`)) return;
+  window.deleteTemplate = (id, name) => {
+    const modal = document.getElementById('danger-confirm-modal');
+    const targetNameEl = document.getElementById('danger-modal-target-name');
+    const confirmBtn = document.getElementById('danger-modal-confirm-btn');
+
+    if (!modal) {
+      // Fallback
+      const msg = `🚨 [중요 경고] 골든 템플릿 영구 삭제\n\n정말로 "${name}" 템플릿을 삭제하시겠습니까?\n\n⚠️ 주의사항:\n1. 템플릿 설정 기준이 영구히 파기됩니다.\n2. Compare 탭에서 이 템플릿으로 감사된 모든 장비 설정 파일 내역도 함께 즉시 영구 삭제됩니다!\n3. 이 작업은 되돌릴 수 없습니다.\n\n계속 진행하시겠습니까?`;
+      if (!confirm(msg)) return;
+      executeDeleteTemplate(id, name);
+      return;
+    }
+
+    targetNameEl.textContent = `"${name}"`;
+    modal.style.display = 'flex';
+
+    // 확인 버튼 리스너 바인딩
+    confirmBtn.onclick = async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '삭제 중...';
+      try {
+        await executeDeleteTemplate(id, name);
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '🚨 영구 삭제 진행';
+        window.closeDangerConfirm();
+      }
+    };
+  };
+
+  window.closeDangerConfirm = () => {
+    const modal = document.getElementById('danger-confirm-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  async function executeDeleteTemplate(id, name) {
     await fetch(`/api/golden/templates/${id}`, { method: 'DELETE' });
     loadGoldenTemplates();
-    import('/static/js/app.js').then(m => m.toast('템플릿 삭제됨', 'success'));
-  };
+    if (window.loadCompareTree) {
+      window.loadCompareTree();
+    }
+    if (window.closeCompareResult) {
+      window.closeCompareResult();
+    }
+    import('/static/js/app.js').then(m => m.toast(`"${name}" 템플릿 및 연동된 비교 내역이 영구 삭제되었습니다.`, 'success'));
+  }
+
+  // ESC 키로 경고 모달 닫기
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      window.closeDangerConfirm();
+    }
+  });
 
   loadGoldenTemplates();
 

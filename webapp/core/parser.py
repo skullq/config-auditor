@@ -312,7 +312,7 @@ def extract_all_blocks(config_text: str, os_hint: str = 'auto') -> Tuple[List[Di
                         "id": f"{bid}.{clean_intf}.config",
                         "block_id": bid,
                         "section": bid,
-                        "parent_node": n.line.strip(),
+                        "parent_node": "",
                         "command_line": n.line.strip(),
                         "label": f"{group_prefix} > {intf_name}",
                         "value": "configured",

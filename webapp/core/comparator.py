@@ -351,8 +351,11 @@ def compare(golden_items: list[dict], target_parsed: dict, conditional_rules: li
         # 지능형 타겟 설정 검색
         actual_value, found_context = _find_target_actual(item, inventory, target_sections)
 
-        # 비교 대상 값 결정 (actual_value가 있으면 우선, 없으면 found_context)
-        cmp_target = actual_value if actual_value is not None else (found_context if found_context else None)
+        # 비교 대상 값 결정 (전체 라인 직접 편집 모드인 경우 타겟의 전체 라인인 found_context를 우선 비교)
+        if item.get("full_line_mode"):
+            cmp_target = found_context if found_context else actual_value
+        else:
+            cmp_target = actual_value if actual_value is not None else (found_context if found_context else None)
 
         # 값 및 match_type 기반 판정
         matched, display_actual = _match_value(expected, cmp_target, match_type, section)
