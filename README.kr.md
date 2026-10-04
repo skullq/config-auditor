@@ -1,156 +1,263 @@
-# Network Config Auditor (FastAPI + cisco-config-parser + Ollama)
+# Network Config Auditor (FastAPI + ciscoconfparse2 + Ollama)
 
-Cisco IOS-XE, NX-OS, IOS-XR, AireOS (WLC) 및 IOS 설정 파일을 자동으로 분석하고, 골든 컨피그(Golden Config) 기반으로 규정 준수 여부를 감사(Audit)하는 전문 프로젝트입니다. `cisco-config-parser 3.0.0`을 통한 구조화된 20+개 블록 분석 및 Drag & Drop 배치 감사 구성, Ollama LLM을 이용한 지능형 레포트 정제 기능을 제공합니다.
-
----
-
-## 핵심 기능
-
-### 1. cisco-config-parser 3.0.0 기반 모듈형 블록 분석 & Drag & Drop 정렬
-- **20+개 전역 블록 자동 추출**: Identity, L3/L2 인터페이스, VLAN, VRF, 라우팅(Static/OSPF/BGP/EIGRP), ACL, Prefix List, Route Map, FHRP, AAA, Line, Banner 등을 정밀 구조화.
-- **Drag & Drop 감사 순서 제어**: 골든 탭에서 각 블록 카드를 마우스로 위아래로 끌어서 검사 순서를 재배치하고, 원클릭으로 블록 전체를 On/Off 활성화/비활성화 가능.
-- **Windows 네이티브 완벽 지원**: 기존 pyATS Genie와 달리 별도의 C 빌드 도구 없이 Windows 환경에서도 `uv`를 통해 즉시 동작.
-
-### 2. 멀티 플랫폼 및 지능형 골든 컨피그 관리
-- **멀티 OS 지원**: IOS-XE, NX-OS, IOS-XR, AireOS(WLC), 클래식 IOS 장비를 모두 지원합니다.
-- **자동 섹션 탐지**: IOS 설정의 들여쓰기 규칙과 `ConfigTree`를 분석하여 Interface, OSPF, BGP, ACL 등 모든 섹션을 자동으로 분류합니다.
-- **시각적 그룹화**: 골든 탭과 비교 탭 모두에서 논리적 섹션별로 항목을 그룹화하며, 고유 아이콘(🔗 인터페이스, 📂 일반 설정)을 통해 가독성을 높였습니다.
-- **일괄 항목 제어**: 섹션 그룹별 '전체 선택' 및 '전체 해제' 기능을 통해 템플릿 커스터마이징 효율을 극대화했습니다.
-
-### 3. 강력한 비교 엔진 (Expert Audit)
-- **최고 수준의 정규화(Extreme Normalization)**: 단순 공백 차이, 탭, 특수 공백, 대소문자 차이를 완전히 무시하여 불필요한 오탐(False Negative)을 제거합니다.
-- **이중 폴백(Fallback) 매칭**: 특정 설정 블록이 이동되거나 가려진 경우에도, 동일 섹션 내 전역 검색을 수행하여 실제 설정 존재 여부를 정확히 판정합니다.
-- **자동 줄바꿈(Word Wrap) 지원**: 매우 긴 설명(Description)이나 복잡한 ACL 문구도 화면 크기에 맞게 자동으로 줄바꿈되어 최적의 가독성을 제공합니다.
-
-### 4. 지속적 이력 관리 및 상세 조회 (Archive Engine)
-- **감사 아카이빙**: 모든 감사 실행 결과는 SQLite 데이터베이스에 영구 저장됩니다.
-- **대화형 상세 결과 모달**: 'Report' 탭의 과거 이력을 클릭 한 번으로 불러와, 실시간 검사와 동일한 그룹화 UI로 상세 내역을 언제든 다시 검토할 수 있습니다.
-- **유연한 워크플로우**: 실시간 비교(Compare 탭)와 장기적 감사 추적(Report 탭)을 분리하여 효율적인 관리 환경을 제공합니다.
-
-### 5. 호스트명 기반 동적 액션 (Conditional Rules)
-- **Regex 기반 매칭**: 장비의 호스트명을 정규표현식으로 분석합니다.
-- **조건부 추가 검증**: 예: 호스트명이 `^SH-.*-AGG`와 일치할 때만 특정 인터페이스 설정이나 ACL이 추가로 포함되도록 하는 동식 액션을 로드합니다.
-
-### 6. 멀티 티어 감사 결과 (Pass / Review / Fail)
-- **Pass**: 모든 필수 및 선택 항목이 기대값과 일치.
-- **Review**: 가중치가 낮은 선택적 항목이 불일치하거나 누락된 경우.
-- **Fail**: 필수 설정이 누락되었거나 기대값과 다른 경우.
-
-### 7. LLM 기반 결과 정교화 (Report Enrichment)
-- **Ollama 연동**: 로컬 LLM을 사용하여 감사 결과를 전문가 수준으로 재가공합니다.
-- **영향도 분석**: 위반 사항이 네트워크 인프라에 미치는 영향(Impact)을 스스로 분석하여 조치 로드맵을 제시합니다.
-
-### 8. 유지보수 및 신뢰성
-- **자동 데이터베이스 마이그레이션**: 시스템이 업데이트되어 새로운 스키마가 필요할 때, 별도의 설정 없이 시작 시 자동으로 DB 구조를 최신화하여 중단 없는 업그레이드를 보장합니다.
+Cisco IOS-XE, NX-OS, IOS-XR, AireOS (WLC) 및 IOS 설정 파일을 계층적으로 정밀 분석하고, 골든 컨피그(Golden Config)를 기준으로 규정 준수 감사(Audit), **미인가 추가 설정 Diff(Extra Configs)**, **보안 위험도 분류(DANGER/WARNING/INFO)** 및 **스마트 롤백 CLI 스크립트**를 원클릭 생성하는 엔터프라이즈 네트워크 감사 솔루션입니다.
 
 ---
 
-## 기술 스택
-
-- Backend: Python 3.12, FastAPI, Uvicorn
-- Parsing: `cisco-config-parser 3.0.0`
-- Storage: SQLite (SQLAlchemy)
-- LLM: Ollama API (Local LLM)
-- Frontend: Vanilla JS, CSS (Premium Dark Theme), HTML5
+## 📑 목차
+1. [핵심 아키텍처 및 주요 기능](#-핵심-아키텍처-및-주요-기능)
+2. [L2/L3 인터페이스 정책 프로파일 & 시맨틱 바인딩](#-l2l3-인터페이스-정책-프로파일--시맨틱-바인딩)
+3. [보안 위험도 분류 체계 및 근거 (CIS & DISA STIG)](#-보안-위험도-분류-체계-및-근거-cis--disa-stig)
+4. [체계적인 형상 관리 시스템 (Git-Ops Rule & Template System)](#-체계적인-형상-관리-시스템-git-ops-rule--template-system)
+   - [DB가 .gitignore 처리된 배경과 해결책](#db가-gitignore-처리된-배경과-해결책)
+   - [Git-Ops 선언적 파일 구조](#git-ops-선언적-파일-구조)
+   - [지속적 업데이트 및 협업 워크플로우](#지속적-업데이트-및-협업-워크플로우)
+5. [기술 스택](#-기술-스택)
+6. [설치 및 실행 가이드](#-설치-및-실행-가이드)
+7. [E2E 자동화 테스트 검증](#-e2e-자동화-테스트-검증)
+8. [프로젝트 디렉터리 구조](#-프로젝트-디렉터리-구조)
 
 ---
 
-## 설치 및 실행
+## 🚀 핵심 아키텍처 및 주요 기능
 
-### 방법 1: uv 사용 (권장 - 빠름)
-`uv`는 Rust로 작성된 초고속 파이썬 패키지 관리자입니다.
+### 1. `ciscoconfparse2` 기반 계층형 트리 파싱 & 노이즈 정제
+- **CiscoConfParse 엔진**: 장비의 계층적 부모-자식 블록 구조(`ConfigTree`)를 완벽하게 유지하여 복잡한 인터페이스, 라우팅, AAA, 방화벽 ACL 구문을 파싱합니다.
+- **비설정 노이즈 자동 제거**: 터미널 프롬프트(`Router# show running-config`), 세션 배너, 타임스탬프 로그를 자동으로 필터링합니다.
+- **다중 라인 배너 보존**: `banner motd ^C ... ^C`와 같은 특수 딜리미터 배너 블록을 손상 없이 온전히 파싱하고 검사합니다.
+
+### 2. 침묵형 위협 감지 (Extra Config Diff & 100% 준수율 상황 대응)
+- 대상 장비가 골든 템플릿의 필수 룰을 100% 만족하더라도, **기준 템플릿에 정의되지 않은 비인가 추가 라인**이 존재할 경우 누락 없이 감지하여 `extra_configs`로 적출합니다.
+- **블록 전체 추가 vs 라인 단위 추가 구분**: 새로운 인터페이스나 라우팅 프로세스 등 블록 전체가 추가된 경우(`is_block_extra`)와 기존 블록 내 세부 설정 라인이 추가된 경우를 명확히 구분합니다.
+
+### 3. 지능형 롤백 CLI 및 Clean Config 자동 생성
+- **부모 컨텍스트 인식 역명령**: 부모 블록(예: `interface GigabitEthernet1`)에 진입하여 정확한 `no <command>`를 생성하거나, 블록 단위는 최상위에서 `no <block>`으로 일괄 정리합니다.
+- **보안 역명령 스마트 복원**: 이미 `no`로 비활성화된 보안 기능(예: `no switchport port-security`)은 `no`를 제거하여 `switchport port-security`로 원상 복구합니다.
+- **완결성 보장**: 생성되는 스크립트는 `configure terminal`로 시작하여 `end` 및 `write memory`로 안전하게 완결됩니다.
+- **Clean Config 다운로드**: 기준 외 추가 라인만 `! [REMOVED_BY_AUDITOR]` 주석 처리된 무결성 설정 파일을 즉시 생성 및 다운로드할 수 있습니다.
+
+### 4. 템플릿 실시간 동기화 & 영향도 감지 (Reactive State Engine)
+- Golden 탭에서 템플릿을 수정·저장하면 Compare 탭 상단에 **실시간 변경 감지 배너**가 즉시 활성화됩니다.
+- 변경된 룰셋을 현재 화면에 즉시 재감사할 것인지, 아니면 이전 상태로 롤백할 것인지 직관적인 팝업과 인터랙션을 제공합니다.
+
+---
+
+## 🏷️ L2/L3 인터페이스 정책 프로파일 & 시맨틱 바인딩
+
+스위치와 라우터의 수십~수백 개 인터페이스 포트는 장비 기종마다 포트 명명 규칙(예: `GigabitEthernet0/0/1` vs `TenGigabitEthernet1/0/48`)이 다르고, 포트의 역할(Access 단말용, Core/Dist Uplink용, AP용 등)에 따라 요구되는 보안/네트워크 설정이 완전히 다릅니다.
+
+본 솔루션은 포트 이름을 특정하지 않아도 **포트 패턴 조건**과 **Description(설명) 시맨틱 단서**를 결합하여 최적의 인터페이스 룰셋을 동적으로 바인딩하고 일괄 감사하는 **인터페이스 정책 프로파일 아키텍처**를 제공합니다.
+
+### 1. 포트 이름 4대 매칭 조건 (단일 패턴으로 전체 대표)
+| 매칭 조건 (Condition) | 설명 | 설정 예시 | 적용 대상 |
+| :--- | :--- | :--- | :--- |
+| **`exact`** | 지정한 포트 이름과 100% 동일한 인터페이스만 대상 | `GigabitEthernet0/0` | 관리용(MGMT) 포트, 특정 고정 포트 |
+| **`contains`** | 포트 이름에 특정 문자열이 포함된 인터페이스 대상 | `TenGigabitEthernet` | 10G/40G 고속 업링크 전용 포트군 |
+| **`regex`** | 정규표현식 패턴에 부합하는 인터페이스 대상 | `^(Gigabit\|TenGigabit)[0-9]/[0-9]/4[0-8]$` | 40번대 이후의 특정 모듈 포트군 |
+| **`exists`** | **조건값 생략(또는 `.*`) 시 전체 L2 또는 L3 인터페이스를 대표(대변)** | (비워둠) | **스위치 전체 Access 포트, 라우터 전체 Routed 포트 기본 표준** |
+
+### 2. Description 패턴 기반 시맨틱 동적 바인딩
+포트 이름이 무엇이든 네트워크 엔지니어가 설정한 `description`의 키워드나 정규식 패턴을 판별하여 필요한 필수/선택 룰을 타겟팅합니다.
+
+- **`contains`**: Description에 특정 키워드가 포함될 때 적용 (예: `UPLINK`, `TO-CORE`, `SERVER`, `AP-`)
+- **`regex`**: Description에 특정 정규식이 매칭될 때 적용 (예: `^(CORE|DIST)-SW[0-9]+`)
+- **`exact`**: Description이 지정 문자열과 완전 일치할 때 적용
+- **`exists`**: Description이 1줄이라도 존재하는 모든 포트 대상
+- **`none`**: Description 조건을 보지 않고 인터페이스 이름 패턴만으로 판정
+
+### 3. 지능형 우선순위 판정 알고리즘 (Priority Scoring)
+타겟 장비의 각 L2/L3 인터페이스마다 등록된 프로파일들을 가중치 점수 기반으로 자동 평가하여, **가장 구체적인 단 하나의 프로파일을 1:1로 엄격하게 바인딩**합니다.
+
+```mermaid
+graph TD
+    A[타겟 장비 L2/L3 인터페이스 탐색] --> B{프로파일 조건 가중치 평가}
+    B -->|점수 40점| C[Description 일치 + 포트 이름 일치<br/>예: UPLINK 10G 전용 트렁크 정책]
+    B -->|점수 30점| D[Description 일치 + 포트 이름 전체 대표<br/>예: UPLINK 공통 트렁크 정책]
+    B -->|점수 20점| E[포트 이름 일치 + Description 없음<br/>예: TenGigabit 포트 전용 정책]
+    B -->|점수 10점| F[포트 이름 전체 대표 + Description 없음<br/>예: 기본 L2 Access 단말 표준 정책]
+    C --> G[최고 득점 프로파일 1:1 바인딩 & 룰셋 감사]
+    D --> G
+    E --> G
+    F --> G
+    G --> H[매칭 구문 식별 및 Extra Configs 오탐 방지]
+    G --> I[Compare 화면에 🏷️ 프로파일 뱃지 노출]
+```
+
+### 4. 웹 UI 설정 및 사용 가이드
+1. **프로파일 관리 화면 진입**:
+   - `Golden` 탭에서 골든 템플릿 카드를 클릭하여 설정 드로어를 엽니다.
+   - 드로어 상단의 **[🏷️ 인터페이스 정책 (L2/L3 Profiles)]** 서브탭을 클릭합니다.
+2. **신규 프로파일 등록**:
+   - **[+ 정책 프로파일 추가]** 버튼을 클릭하면 프로파일 설정 모달이 나타납니다.
+   - **프로파일 이름**: 정책 식별자 입력 (예: `L2 트렁크 업링크 표준`, `일반 Access 포트 보안`)
+   - **적용 인터페이스 타입**: `L2 Switchport` 또는 `L3 Routed Interface` 선택
+   - **포트 이름 매칭 조건**: `전체 대표(exists)`, `문자열 포함(contains)`, `정규표현식(regex)`, `완전 일치(exact)` 중 선택
+   - **Description 매칭 조건**: `조건 없음(none)`, `문자열 포함(contains)`, `정규표현식(regex)` 등 선택 후 매칭값 입력
+3. **인터페이스 필수/선택 명령어 룰셋 등록**:
+   - 모달 하단 테이블에서 포트에 반드시 들어가야 할 설정(예: `switchport mode trunk`, `switchport nonegotiate`, `spanning-tree portfast`)을 행 단위로 추가합니다.
+   - 각 명령어마다 조건(`exact`, `contains`, `regex`, `exists`) 및 필수 여부(Mandatory)를 설정합니다.
+4. **저장 및 감사 실행**:
+   - **[프로파일 적용]** 후 우측 상단 **[템플릿 저장]**을 완료합니다.
+   - Compare 탭에서 감사를 실행하면 대상 인터페이스 헤더에 `🏷️ <프로파일명>` 뱃지가 표시되며, 해당 프로파일 기준의 준수율 감사와 스마트 롤백 스크립트가 자동 도출됩니다.
+
+### 5. 계층형 설정 룰 vs 인터페이스 정책 프로파일의 관계 및 위임 원칙
+- **역할 분담 원칙**:
+  - **계층형 설정 룰의 인터페이스**: `Loopback0`(장비 Router-ID), `Management0`(OOB 원격 관리), 특정 관리 VLAN SVI 등 **모든 장비에 반드시 고정된 1개의 이름으로 존재해야 하는 특수 인터페이스**에만 선별 적용합니다.
+  - **인터페이스 정책 프로파일**: 수십~수백 개의 **일반 물리 포트(L2 Access, Trunk, AP, Server 연결 등)**를 일괄 동적 감사합니다.
+- **원클릭 프로파일 위임(Delegation)**:
+  - 룰 편집기(Rule Editor)의 `interfaces_l2` 및 `interfaces_l3` 블록 상단에 안내 배너와 함께 **[🏷️ 인터페이스 정책으로 위임 (선택 해제)]** 버튼이 제공됩니다.
+  - 클릭 한 번으로 수십 개의 물리 포트 선택을 일괄 해제하여, 하드코딩된 고정 포트 룰 대신 유연한 인터페이스 정책 프로파일이 모든 포트를 자동 감사하도록 손쉽게 위임할 수 있습니다.
+
+---
+
+## 🛡️ 보안 위험도 분류 체계 및 근거 (CIS & DISA STIG)
+
+본 시스템의 추가 설정 Diff 엔진은 단순한 텍스트 비교를 넘어, 네트워크 보안의 양대 국제 표준인 **CIS Cisco IOS Benchmark (v4.1.0)** 및 **미 국방부 DISA Network Infrastructure STIG** 기준에 따라 위험도를 3단계(`DANGER`, `WARNING`, `INFO`)로 정밀 판정합니다.
+
+### 보안 위험도 판정 기준표
+
+| 위험도 | 분류 정의 | 준거 표준 (Standard) | 탐지 패턴 예시 | 위험 사유 및 파급력 |
+| :---: | :--- | :--- | :--- | :--- |
+| **`DANGER`** <br>(치명적) | 원격 장비 장악, 백도어 침투, 트래픽 감청, 전면 접근 통제 무력화 | • CIS 1.1 / DISA STIG NET-0410<br>• CIS 1.2 / DISA STIG NET-0450<br>• CIS 1.3 / DISA STIG NET-0800<br>• CIS 2.1 (L2 Hardening)<br>• CIS 3.1 / DISA STIG NET-0600 | • `username ... priv 15`<br>• `snmp-server community ... rw`<br>• `snmp-server community public`<br>• `transport input telnet`<br>• `ip http server`<br>• `no switchport port-security`<br>• `no service password-encryption`<br>• `permit ip any any` | **장비 전면 탈취 및 보안 무력화**<br>- 비인가 최고 권한 계정으로 관리자 통제권 상실<br>- SNMP 쓰기 권한 노출로 원격 설정 변조<br>- 평문 통신 스니핑을 통한 패스워드 탈취<br>- L2 포트 보안 해제로 MAC 플러딩/비인가 단말 침입 |
+| **`WARNING`** <br>(주의/경고) | 트래픽 경로 왜곡, 비표준 라우팅 주입, 공격 표면(Attack Surface) 확장 | • CIS Routing Security<br>• RFC 7454 (BGP Ops)<br>• CIS 1.4 (Unneeded Services)<br>• Network Architecture Policy | • `router ospf ...` / `router bgp ...`<br>• `ip route ...`<br>• `ip vrf ...`<br>• `username <user>` (일반)<br>• `service config`<br>• `ip bootp server` / `ip finger`<br>• `ip address ...` (비인가) | **네트워크 서비스 이상 및 경로 우회**<br>- 비인가 라우팅 프로세스로 인한 경로 누출(Route Leak) 및 루프<br>- 비인가 정적 경로 주입으로 트래픽 비정상 게이트웨이 우회<br>- 불필요한 레거시 서비스 가동으로 취약점 노출 |
+| **`INFO`** <br>(일반 정보) | 망 운영상 추가된 비위험 라인, 주석, 표준 변경 사항 | • General Operational Audit | • `description ...`<br>• `ntp server ...`<br>• `logging ...`<br>• 단순 파라미터 미세 조정 | **운영성 변경 사항**<br>- 보안상 위험은 없으나 기준 템플릿과 상이한 형상 변경 이력 추적 |
+
+---
+
+## 📦 체계적인 형상 관리 시스템 (Git-Ops Rule & Template System)
+
+### DB가 `.gitignore` 처리된 배경과 해결책
+- **배경**: SQLite 데이터베이스(`webapp/data.db`)는 개별 장비의 감사 이력, 고객사/프로젝트별 실제 운영 설정 스냅샷 등 민감정보를 담고 있으므로 보안 및 저장소 오염 방지를 위해 `.gitignore`에 등록되어 있습니다.
+- **발생하는 과제**: 개발자 간 코드 협업 시, 또는 운영 서버로 배포 시 `data.db`가 전달되지 않아 **골든 템플릿과 보안 룰이 누락되는 문제**가 발생합니다.
+- **해결책**: 본 프로젝트는 **선언적 파일 기반 Git-Ops 아키텍처**를 구축하여 DB 파일 없이도 Git을 통해 모든 정책과 템플릿을 버전 관리하고 지속적으로 업데이트합니다.
+
+```
+[Git Repository (버전 관리)]
+ ├── rules/security_rules.json       <-- 공인 보안 룰셋 (Git 커밋)
+ └── seeds/templates/*.json          <-- 표준 골든 템플릿 Seed (Git 커밋)
+         │
+         ▼ (앱 기동 시 자동 시딩 & Settings 탭 동기화)
+[로컬 런타임 (data.db - .gitignore)]
+ ├── SQLite Tables: templates, results, settings
+ └── 사용자 장비 감사 이력 및 로컬 편집 데이터 보존
+```
+
+### Git-Ops 선언적 파일 구조
+
+#### 1. 선언적 보안 룰셋: `rules/security_rules.json`
+보안 위협도 판정 규칙을 JSON 형태로 선언하여 Git으로 코드 리뷰 및 지속 업데이트를 수행합니다.
+```json
+[
+  {
+    "id": "SEC-DANGER-PRIV15",
+    "level": "danger",
+    "standard": "CIS 1.1 / DISA STIG NET-0410",
+    "title": "비인가 최고 관리자(Priv 15) 계정",
+    "pattern": "\\busername\\s+\\S+.*\\b(privilege|priv)\\s+15\\b",
+    "parent_pattern": "",
+    "reason": "골든 룰에 등록되지 않은 Privilege 15 최고 권한 로컬 계정이 추가되어 백도어 및 장비 전면 장악 위험이 있습니다.",
+    "remediation": "해당 비인가 계정 삭제 (no username <user>)"
+  },
+  ...
+]
+```
+
+#### 2. 선언적 골든 템플릿 Seed: `seeds/templates/*.json`
+운영 조직의 장비군별 표준 골든 컨피그 템플릿을 JSON Seed 파일로 유지합니다.
+- `seeds/templates/standard-core-iosxe.json`: 엔터프라이즈 백본/코어 스위치 표준 템플릿 예시.
+
+### 지속적 업데이트 및 협업 워크플로우
+
+#### ① 최초 환경 구축 (무손실 자동 시딩)
+신규 개발자나 운영 서버에서 `git clone` 후 최초 서버 기동 시:
+- 백엔드 시동(`webapp.main:app`) 이벤트에서 `seed_templates_from_disk()`가 자동 실행됩니다.
+- DB에 템플릿이 없을 경우 `seeds/templates/*.json` 파일들을 탐색하여 자동으로 DB에 표준 템플릿을 주입합니다. (기존 데이터가 있을 경우 임의 덮어쓰기를 방지하여 안전성 보장)
+
+#### ② 웹 GUI에서 수정한 골든 템플릿을 Git으로 저장 (Export)
+1. 브라우저의 `Golden` 탭에서 마우스 클릭 및 드래그 앤 드롭으로 템플릿을 수정합니다.
+2. `Settings` 탭의 **[📤 현재 템플릿을 Seed JSON으로 내보내기]** 버튼을 클릭합니다.
+3. `seeds/templates/<템플릿이름>.json` 파일로 즉시 파일시스템에 저장됩니다.
+4. Git 명령어로 변경된 Seed를 커밋하고 푸시하여 전사 팀원과 공유합니다:
+   ```bash
+   git add seeds/templates/
+   git commit -m "feat(golden): 코어 스위치 OSPF 및 ACL 골든 룰 갱신"
+   git push origin main
+   ```
+
+#### ③ 팀원이 푸시한 최신 정책 및 템플릿 동기화 (Import & Reload)
+팀원이 갱신한 Git 내용을 `git pull`한 후, 애플리케이션 재시작 없이 웹 UI에서 즉시 반영할 수 있습니다:
+- **보안 룰셋 갱신**: `Settings` 탭의 **[🔄 룰셋 파일 리로드]** 클릭 (`POST /api/security/rules/reload`)
+- **템플릿 Seed 갱신**: `Settings` 탭의 **[📥 Seed JSON 템플릿 동기화]** 클릭 (`POST /api/security/templates/import-seeds`)
+
+---
+
+## 🛠 기술 스택
+
+- **Backend**: Python 3.12, FastAPI, Uvicorn, SQLAlchemy
+- **Parsing Engine**: `ciscoconfparse2 >= 0.8.0` (CiscoConfParse 계층 트리 분석)
+- **Policy Engine**: 선언적 정규식 매칭 및 CIS/DISA STIG 기반 위험도 분류기 (`security_policy.py`)
+- **Frontend**: Vanilla JavaScript (ES6+), Modern Dark UI CSS, HTML5
+- **AI/LLM**: Ollama Local API (Llama 3 / Mistral 등)
+- **Testing**: `pytest`, `playwright`, `pytest-playwright`
+
+---
+
+## 💻 설치 및 실행 가이드
+
+### uv 기반 실행 (권장)
 ```bash
-# 1. 가상환경 생성 및 패키지 동기화
-# (pyproject.toml 또는 requirements.txt를 자동으로 감지합니다)
-uv venv
-source .venv/bin/activate  # 또는 .venv\Scripts\activate
+# 1. 의존성 동기화 및 가상환경 활성화
+uv sync
 
-# 2. 패키지 설치
-uv pip install -r requirements.txt
-
-# 3. 서버 실행
-cd webapp
-uv run uvicorn main:app --host 0.0.0.0 --port 8000
+# 2. 애플리케이션 서버 기동 (Seed 자동 로드)
+uv run uvicorn webapp.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 방법 2: pip 및 venv 사용
+브라우저에서 `http://localhost:8000`에 접속하여 사용합니다.
+
+---
+
+## 🧪 E2E 자동화 테스트 검증
+
+프로젝트 루트에서 Playwright 브라우저 E2E 테스트 및 파서 검증을 100% 실행할 수 있습니다.
+
 ```bash
-# 가상환경 생성 및 진입
-python -m venv .venv
-source .venv/bin/activate
+# 1. Playwright E2E UI 및 감사 워크플로우 통합 테스트
+uv run pytest tests/test_audit_e2e_playwright.py -v
 
-# 필수 패키지 설치
-cd webapp
-pip install -r requirements.txt
-
-# 서버 실행
-uvicorn main:app --host 0.0.0.0 --port 8000
+# 2. 샘플 컨피그 파싱 무결성 검증
+uv run python test_parse.py samples
 ```
 
 ---
 
-## 🗄 데이터베이스 설정 (SQLite)
-
-본 프로젝트는 별도의 DB 서버 설치 없이 즉시 사용 가능한 **SQLite**를 사용합니다.
-
-- **위치**: `webapp/data.db`에 파일 형태로 저장됩니다.
-- **ORM**: SQLAlchemy를 통해 데이터 모델링 및 쿼리를 처리합니다.
-- **주요 테이블**:
-  - `templates`: 골든 컨피그 항목, 호스트명 Regex, 조건부 규칙 정의
-  - `results`: 감사 수행 이력 및 상세 Pass/Fail 데이터
-  - `settings`: Ollama URL, 사용 모델 등 시스템 설정값
----
-
-## 📂 파일 및 템플릿 관리 위치
-
-본 프로젝트의 모든 데이터는 프로젝트 폴더 내부에 로컬로 관리되어 외부 유출 위험이 적습니다.
-
-1. **업로드된 설정 파일**:
-   - 위치: `webapp/uploads/`
-   - 설명: 비교 및 분석을 위해 브라우저를 통해 업로드된 임시 설정 파일들이 저장됩니다. `.gitignore`에 포함되어 있어 Git에는 저장되지 않습니다.
-
-2. **골든 컨피그 템플릿**:
-   - 위치: `webapp/data.db` (SQLite 내부)
-   - 설명: 별도의 JSON/YAML 파일이 아닌, 데이터베이스의 `templates` 테이블에 직렬화되어 저장됩니다. 이를 통해 UI에서 편리하게 수정, 삭제 및 버전 관리를 할 수 있습니다.
-
-3. **감사 결과 보고서**:
-   - 위치: `webapp/data.db` (SQLite 내부)
-   - 설명: 모든 감사 이력과 점수, 상세 불일치 결과는 DB에 저장되어 언제든 다시 조회할 수 있습니다.
-
-### 3. Ollama 설치 (LLM 기능 사용 시)
-```bash
-# https://ollama.ai/ 에서 설치 후 모델 다운로드
-ollama pull llama3  # 권장 모델
-ollama serve
-```
-
----
-
-## 사용 방법
-
-1. [Golden Tab]: 기준 설정 파일을 업로드하여 템플릿을 생성합니다. (호스트명별 동적 규칙 설정 가능)
-2. [Compare Tab]: 감사 대상 파일을 업로드하여 결과를 확인합니다.
-3. [Report Tab]: LLM 옵션을 사용하여 정제된 레포트를 생성하고 복사/다운로드합니다.
-4. [Bulk Tab]: 전사 장비의 대규모 감사를 일괄 수행합니다.
-
----
-
-## 프로젝트 구조
+## 📁 프로젝트 디렉터리 구조
 
 ```
-/webapp
-├── main.py              # FastAPI 진입점 및 API 정의
-├── core/
-│   ├── parser.py        # Genie 파서 및 섹션 분리 로직
-│   ├── comparator.py    # Pass/Review/Fail 비교 및 동적 액션 엔진
-│   └── llm.py           # Ollama 프롬프트 및 레포트 정제 로직
-├── db/
-│   ├── database.py      # SQLite CRUD 및 설정 테이블 관리
-├── static/              # 프론트엔드 자산 (Premium UI)
-│   ├── index.html
-│   ├── css/style.css
-│   └── js/              # 리액티브 JS 모듈
-└── data.db              # 로컬 데이터베이스
+config-auditor/
+├── rules/
+│   └── security_rules.json       # [Git 관리] CIS/DISA STIG 기반 보안 위험도 룰셋
+├── seeds/
+│   └── templates/                # [Git 관리] 표준 골든 템플릿 Seed 파일들
+│       └── standard-core-iosxe.json
+├── samples/                      # 검증용 실제 장비 샘플 컨피그
+│   ├── sample-1.txt
+│   └── sample-1-Orig.txt         # 보안 취약점 주입 테스트 샘플
+├── tests/
+│   └── test_audit_e2e_playwright.py # Playwright 브라우저 E2E 자동화 테스트
+├── webapp/
+│   ├── main.py                   # FastAPI 라우터 및 시딩/동기화 엔드포인트
+│   ├── core/
+│   │   ├── parser.py             # ciscoconfparse2 기반 계층 파싱 & 노이즈 정제
+│   │   ├── comparator.py         # 골든 룰 감사, Diff 적출, 롤백 CLI 생성
+│   │   ├── security_policy.py    # Git-Ops 선언적 룰셋 로더 & 시더
+│   │   └── llm.py                # Ollama 리포트 정제 로직
+│   ├── db/
+│   │   └── database.py           # SQLAlchemy 로컬 모델 및 스키마
+│   ├── static/                   # 반응형 웹 UI 자산
+│   │   ├── index.html
+│   │   ├── css/style.css
+│   │   └── js/ (app.js, compare.js, golden.js, settings.js 등)
+│   └── data.db                   # [.gitignore] 로컬 SQLite DB (감사 이력)
+└── README.kr.md                  # 사용자 및 운영자 종합 가이드
 ```
-
----

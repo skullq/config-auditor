@@ -4,3 +4,4 @@ python-multipart
 httpx
 pydantic
 cisco-config-parser>=3.0.0
+ciscoconfparse2>=0.9.18

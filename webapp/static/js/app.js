@@ -40,7 +40,11 @@ export function initTabs() {
       document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
-      document.getElementById(tab.dataset.tab).classList.add('active');
+      const panel = document.getElementById(tab.dataset.tab);
+      if (panel) panel.classList.add('active');
+      if (window.checkPendingTemplateChanges) {
+        window.checkPendingTemplateChanges();
+      }
     });
   });
 }

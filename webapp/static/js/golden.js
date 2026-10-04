@@ -16,6 +16,65 @@ function escapeHtml(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// ── Golden Drawer Global Handlers ──
+window.openGoldenDrawer = (tpl = null) => {
+  const drawer = document.getElementById('golden-drawer');
+  const backdrop = document.getElementById('golden-drawer-backdrop');
+  if (drawer) {
+    drawer.classList.add('open');
+    drawer.setAttribute('aria-hidden', 'false');
+  }
+  if (backdrop) backdrop.classList.add('open');
+
+  const titleEl = document.getElementById('drawer-golden-title');
+  const subEl = document.getElementById('drawer-golden-subtitle');
+  const hostname = document.getElementById('golden-hostname')?.textContent || '';
+
+  if (tpl) {
+    if (titleEl) titleEl.textContent = `골든 템플릿 수정: ${tpl.name || ''}`;
+    if (subEl) subEl.textContent = '기존 템플릿의 검사 룰 및 설정을 수정합니다.';
+  } else {
+    if (titleEl) titleEl.textContent = '새 골든 템플릿 생성';
+    if (subEl) subEl.textContent = `${hostname ? `장비(${hostname}) 설정 기반으로 ` : ''}감사 기준 룰을 선택하고 저장하세요.`;
+  }
+
+  window.switchGoldenDrawerTab('rules');
+  updateDrawerStats();
+};
+
+window.closeGoldenDrawer = () => {
+  const drawer = document.getElementById('golden-drawer');
+  const backdrop = document.getElementById('golden-drawer-backdrop');
+  if (drawer) {
+    drawer.classList.remove('open');
+    drawer.setAttribute('aria-hidden', 'true');
+  }
+  if (backdrop) backdrop.classList.remove('open');
+};
+
+window.switchGoldenDrawerTab = (tabName) => {
+  document.querySelectorAll('.golden-drawer-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tabName);
+  });
+  document.querySelectorAll('.golden-tab-pane').forEach(pane => {
+    pane.style.display = pane.id === `drawer-tab-${tabName}` ? 'block' : 'none';
+  });
+  if (tabName === 'preview') {
+    updateLivePreview();
+  }
+};
+
+export function updateDrawerStats() {
+  const combined = [...allItems, ...intfItems];
+  const count = combined.filter(i => i.selected).length;
+  const countBadge = document.getElementById('golden-drawer-item-count');
+  const footerStats = document.getElementById('golden-drawer-footer-stats');
+  const mainCount = document.getElementById('golden-item-count');
+  if (countBadge) countBadge.textContent = count;
+  if (footerStats) footerStats.textContent = `선택된 항목: ${count}개 / 전체 ${combined.length}개`;
+  if (mainCount) mainCount.textContent = count;
+}
+
 export function initGolden() {
   const zone    = document.getElementById('golden-drop-zone');
   const input   = document.getElementById('golden-file-input');
@@ -26,36 +85,45 @@ export function initGolden() {
   const expandTreeBtn = document.getElementById('golden-tree-expand-all');
   const collapseTreeBtn = document.getElementById('golden-tree-collapse-all');
 
-  initDropZone(zone, input, files => handleUnifiedUpload(files[0]));
+  if (zone && input) {
+    initDropZone(zone, input, files => handleUnifiedUpload(files[0]));
+  }
 
-  saveBtn.addEventListener('click', saveTemplate);
+  // 드롭존 배너에도 파일 드롭 지원
+  const banner = document.getElementById('golden-upload-banner');
+  if (banner && input) {
+    banner.addEventListener('dragover', e => { e.preventDefault(); banner.classList.add('drag-over'); });
+    banner.addEventListener('dragleave', () => banner.classList.remove('drag-over'));
+    banner.addEventListener('drop', e => {
+      e.preventDefault();
+      banner.classList.remove('drag-over');
+      if (e.dataTransfer.files.length) handleUnifiedUpload(e.dataTransfer.files[0]);
+    });
+  }
+
+  if (saveBtn) saveBtn.addEventListener('click', saveTemplate);
   if (cancelBtn) {
     cancelBtn.addEventListener('click', () => {
       currentEditingId = null;
-      cancelBtn.style.display = 'none';
-      const nameInput = document.getElementById('golden-template-name');
-      if (nameInput) nameInput.value = '';
-      const descInput = document.getElementById('golden-description');
-      if (descInput) descInput.value = '';
-      const zone = document.getElementById('golden-drop-zone');
-      if (zone) {
-        zone.innerHTML = `
-          <div class="drop-icon">📁+🔌</div>
-          <h3>설정 파일을 드래그하거나 클릭하여 업로드</h3>
-          <p>전체 설정 또는 인터페이스 설정 파일 (.cfg, .txt, .conf)</p>
-        `;
-      }
+      window.closeGoldenDrawer();
       toast('수정이 취소되었습니다.', 'info');
     });
   }
-  if (selAll) selAll.addEventListener('click',  () => toggleAll(true));
+  if (selAll) selAll.addEventListener('click', () => toggleAll(true));
   if (selNone) selNone.addEventListener('click', () => toggleAll(false));
 
-  // 실시간 프리뷰 복사 & 접기 버튼
-  const copyPreviewBtn = document.getElementById('preview-copy-btn');
-  const togglePreviewBtn = document.getElementById('preview-toggle-btn');
-  const previewCodeContainer = document.getElementById('preview-code-container');
+  // ESC 키로 골든 에디터 드로어 닫기
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const drawer = document.getElementById('golden-drawer');
+      if (drawer && drawer.classList.contains('open')) {
+        window.closeGoldenDrawer();
+      }
+    }
+  });
 
+  // 실시간 프리뷰 복사 버튼
+  const copyPreviewBtn = document.getElementById('preview-copy-btn');
   if (copyPreviewBtn) {
     copyPreviewBtn.addEventListener('click', () => {
       const code = document.getElementById('golden-live-preview-code')?.textContent || '';
@@ -64,13 +132,6 @@ export function initGolden() {
       }).catch(() => {
         toast('클립보드 복사 실패', 'error');
       });
-    });
-  }
-
-  if (togglePreviewBtn && previewCodeContainer) {
-    togglePreviewBtn.addEventListener('click', () => {
-      previewCodeContainer.classList.toggle('collapsed');
-      togglePreviewBtn.textContent = previewCodeContainer.classList.contains('collapsed') ? '⊞ 펼치기' : '⊟ 접기';
     });
   }
 
@@ -96,17 +157,21 @@ export function initGolden() {
   }
 
   // 섹션/블록 필터 버튼 클릭
-  document.getElementById('golden-section-filters').addEventListener('click', e => {
-    const btn = e.target.closest('.filter-btn');
-    if (!btn) return;
-    document.querySelectorAll('#golden-section-filters .filter-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    filterBlock = btn.dataset.block !== undefined ? btn.dataset.block : '';
-    filterSection = btn.dataset.section || '';
-    renderBlocks();
-    renderItems();
-  });
+  const filtersEl = document.getElementById('golden-section-filters');
+  if (filtersEl) {
+    filtersEl.addEventListener('click', e => {
+      const btn = e.target.closest('.filter-btn');
+      if (!btn) return;
+      document.querySelectorAll('#golden-section-filters .filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filterBlock = btn.dataset.block !== undefined ? btn.dataset.block : '';
+      filterSection = btn.dataset.section || '';
+      renderBlocks();
+      renderItems();
+    });
+  }
 }
+
 
 // ── 통합 골든 설정 업로드 (cisco-config-parser + 인터페이스) ────────
 
@@ -139,7 +204,7 @@ async function handleUnifiedUpload(file) {
     const newGeneral = data.general_items.map(item => ({
       ...item,
       selected: true,
-      match_type: item.match_type || (item.source === 'cisco_config_parser' || item.source === 'genie' ? 'exact' : 'contains'),
+      match_type: item.match_type || (item.source === 'ciscoconfparse2' || item.source === 'cisco_config_parser' || item.source === 'genie' ? 'exact' : 'contains'),
       weight: item.weight || 'required',
       expected_value: item.value,
     }));
@@ -167,15 +232,27 @@ async function handleUnifiedUpload(file) {
     }
 
     // 3. UI 업데이트
-    document.getElementById('golden-hostname').textContent = data.hostname || '(알 수 없음)';
-    document.getElementById('golden-section-count').textContent = data.section_count;
-    document.getElementById('golden-item-count').textContent = allItems.length + intfItems.length;
+    const nameInput = document.getElementById('golden-template-name');
+    if (nameInput && !nameInput.value) {
+      nameInput.value = data.hostname || file.name.replace(/\.[^/.]+$/, '');
+    }
+
+    const hostEl = document.getElementById('golden-hostname');
+    if (hostEl) hostEl.textContent = data.hostname || '(알 수 없음)';
+    const secEl = document.getElementById('golden-section-count');
+    if (secEl) secEl.textContent = data.section_count;
+    const itemEl = document.getElementById('golden-item-count');
+    if (itemEl) itemEl.textContent = allItems.length + intfItems.length;
     
     // 인터페이스 요약 업데이트
-    document.getElementById('intf-total-count').textContent = data.intf_summary.total;
-    document.getElementById('intf-uplink-count').textContent = data.intf_summary.uplink_count;
-    document.getElementById('intf-l2-count').textContent = data.intf_summary.l2_count;
-    document.getElementById('golden-intf-summary').style.display = 'block';
+    const totalEl = document.getElementById('intf-total-count');
+    if (totalEl) totalEl.textContent = data.intf_summary.total;
+    const upEl = document.getElementById('intf-uplink-count');
+    if (upEl) upEl.textContent = data.intf_summary.uplink_count;
+    const l2El = document.getElementById('intf-l2-count');
+    if (l2El) l2El.textContent = data.intf_summary.l2_count;
+    const summaryCard = document.getElementById('golden-intf-summary');
+    if (summaryCard) summaryCard.style.display = 'block';
     
     // 블록 카드 상태
     const blocksCard = document.getElementById('golden-blocks-card');
@@ -183,17 +260,21 @@ async function handleUnifiedUpload(file) {
       blocksCard.style.display = parsedBlocks.length > 0 ? 'block' : 'none';
     }
 
-    document.getElementById('golden-results-area').style.display = 'block';
+    if (window.openGoldenDrawer) {
+      window.openGoldenDrawer();
+    }
 
     buildSectionFilters();
     renderItems();
+    updateLivePreview();
+    updateDrawerStats();
 
     zone.innerHTML = `
       <div class="drop-icon">✅</div>
       <h3>${file.name}</h3>
-      <p>설정 분석 완료 — 다른 파일을 올리려면 클릭</p>
+      <p>설정 분석 완료 — 오른쪽 에디터 드로어에서 세부 설정을 편집하세요</p>
     `;
-    toast(isMerge ? '설정이 성공적으로 병합되었습니다.' : '설정 분석 완료', 'success');
+    toast(isMerge ? '설정이 성공적으로 병합되었습니다.' : '설정 분석 완료! 에디터 창이 열렸습니다.', 'success');
   } catch (err) {
     zone.innerHTML = `
       <div class="drop-icon">📁+🔌</div>
@@ -270,6 +351,7 @@ function renderLeafRow(item, combined, hasParent, isLast) {
   const isBanner = (item.section || '').toLowerCase() === 'banner';
   const isExists = item.match_type === 'exists';
   const isFullLine = !!item.full_line_mode;
+  const isSelected = !!item.selected;
 
   const branchSymbol = hasParent ? (isLast ? '└── ' : '├── ') : '📄 ';
   const displayLabel = item.command_line || item.label;
@@ -291,14 +373,14 @@ function renderLeafRow(item, combined, hasParent, isLast) {
       : '정확한 기대값 입력 (예: 17.12)');
 
   return `
-    <div class="tree-leaf-row ${item.selected ? 'selected' : ''} ${isFullLine ? 'full-line-mode' : ''}" data-idx="${realIdx}">
+    <div class="tree-leaf-row ${isSelected ? 'selected' : 'unselected'} ${isFullLine ? 'full-line-mode' : ''}" data-idx="${realIdx}">
       <span class="tree-branch-symbol">${branchSymbol}</span>
-      <input type="checkbox" class="item-check" data-idx="${realIdx}" ${item.selected ? 'checked' : ''} title="항목 검사 여부 선택">
+      <input type="checkbox" class="item-check" data-idx="${realIdx}" ${isSelected ? 'checked' : ''} title="${isSelected ? '검사 대상 포함 (체크 해제 시 취소선 및 제외)' : '검사 제외됨 (체크 시 규칙에 다시 포함)'}">
       
       ${isFullLine ? `
         <span class="badge-full-tag" title="전체 라인 직접 편집 모드 활성화됨">전체라인</span>
       ` : `
-        <span class="tree-leaf-label" title="${escapeHtml(item.label || displayLabel)}">${escapeHtml(displayLabel)}</span>
+        <span class="tree-leaf-label ${!isSelected ? 'strikethrough' : ''}" title="${escapeHtml(item.label || displayLabel)}">${escapeHtml(displayLabel)}</span>
       `}
 
       ${isBanner ? `
@@ -411,6 +493,27 @@ function renderItems() {
           <!-- Tier 1 콘텐츠 (서브그룹 및 리프 명령어들) -->
           <div class="tree-block-content ${block.collapsed ? 'collapsed' : ''}">
             
+            ${(block.block_id === 'interfaces_l2' || block.block_id === 'interfaces_l3') ? `
+              <div class="intf-delegation-tip card" style="margin: 8px 10px 14px 10px; padding: 10px 14px; background: rgba(88, 166, 255, 0.08); border: 1px solid rgba(88, 166, 255, 0.3); border-radius: 6px;">
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                  <div class="flex items-start gap-2" style="font-size: 11.5px; color: var(--text-primary); line-height: 1.4;">
+                    <span style="font-size: 15px;">💡</span>
+                    <div>
+                      <strong>인터페이스 정책 위임 권장:</strong> 수십 개의 물리 포트를 개별 고정 체크하는 대신, <a href="#" class="intf-goto-profiles-link" style="color:var(--accent); text-decoration:underline; font-weight:600;">[🏷️ 인터페이스 정책]</a> 탭을 사용하면 기종/포트 번호에 무관하게 모든 인터페이스를 일괄 동적 감사할 수 있습니다.
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button class="btn btn-secondary btn-sm block-delegate-profiles-btn" data-block-id="${block.block_id}" style="font-size:11px; padding: 3px 8px; color: var(--accent); border-color: rgba(88, 166, 255, 0.4);" title="현재 블록의 물리 포트 설정을 모두 해제하여 인터페이스 정책 프로파일로 자동 위임합니다.">
+                      🏷️ 인터페이스 정책으로 위임 (선택 해제)
+                    </button>
+                    <button class="btn btn-secondary btn-sm block-goto-profiles-btn" style="font-size:11px; padding: 3px 8px;">
+                      정책 설정 바로가기 ↗
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ` : ''}
+
             <!-- 단독 상위 명령어들 -->
             ${standaloneItems.map((item, idx) => renderLeafRow(item, combined, false, idx === standaloneItems.length - 1)).join('')}
 
@@ -619,6 +722,40 @@ function renderItems() {
       });
     });
 
+    // ── 이벤트 바인딩 6: 인터페이스 정책 프로파일 위임 및 탭 이동 ──
+    list.querySelectorAll('.block-delegate-profiles-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const bid = btn.dataset.blockId;
+        const block = parsedBlocks.find(b => b.block_id === bid);
+        if (block) {
+          block.enabled = false;
+          const blockItemIds = new Set((block.items || []).map(i => i.id));
+          combined.forEach(item => {
+            if (blockItemIds.has(item.id)) {
+              item.selected = false;
+            }
+          });
+          renderItems();
+          buildSectionFilters();
+          const selectedTotal = combined.filter(i => i.selected).length;
+          document.getElementById('golden-item-count').textContent = selectedTotal;
+          updateLivePreview();
+          toast(`[${block.name}] 설정을 모두 해제하여 [인터페이스 정책 프로파일]로 위임했습니다.`, 'success');
+        }
+      });
+    });
+
+    list.querySelectorAll('.block-goto-profiles-btn, .intf-goto-profiles-link').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (window.switchGoldenDrawerTab) {
+          window.switchGoldenDrawerTab('profiles');
+        }
+      });
+    });
+
   } else {
     // 레거시 그룹핑 렌더링
     const filtered = filterSection
@@ -673,7 +810,13 @@ function renderItems() {
     cb.addEventListener('change', () => {
       const idx = +cb.dataset.idx;
       combined[idx].selected = cb.checked;
-      cb.closest('.tree-leaf-row')?.classList.toggle('selected', cb.checked);
+      const row = cb.closest('.tree-leaf-row');
+      if (row) {
+        row.classList.toggle('selected', cb.checked);
+        row.classList.toggle('unselected', !cb.checked);
+        const lbl = row.querySelector('.tree-leaf-label');
+        if (lbl) lbl.classList.toggle('strikethrough', !cb.checked);
+      }
 
       // 블록 활성화 상태 동기화
       const item = combined[idx];
@@ -688,6 +831,7 @@ function renderItems() {
 
       const selectedTotal = combined.filter(i => i.selected).length;
       document.getElementById('golden-item-count').textContent = selectedTotal;
+      updateDrawerStats();
       updateLivePreview();
     });
   });
@@ -802,6 +946,8 @@ function toggleAll(checked) {
   }
   const selectedTotal = combined.filter(i => i.selected).length;
   document.getElementById('golden-item-count').textContent = selectedTotal;
+  updateDrawerStats();
+  updateLivePreview();
 }
 
 window.editTemplate = async (id) => {
@@ -811,6 +957,10 @@ window.editTemplate = async (id) => {
     const tpl = await res.json();
 
     currentEditingId = tpl.id;
+    window._currentInterfaceProfiles = Array.isArray(tpl.interface_profiles) ? JSON.parse(JSON.stringify(tpl.interface_profiles)) : [];
+    if (window.renderInterfaceProfiles) window.renderInterfaceProfiles();
+    if (window.updateProfileTabBadge) window.updateProfileTabBadge();
+
     const nameInput = document.getElementById('golden-template-name');
     if (nameInput) nameInput.value = tpl.name || '';
     const descInput = document.getElementById('golden-description');
@@ -850,59 +1000,109 @@ window.editTemplate = async (id) => {
       parsedBlocks = Array.from(blockMap.values());
     }
 
-    // 2. 항목 데이터 복원
+    // 2. 항목 데이터 완전 복원 (이전에 선택하지 않았던 항목도 취소선 상태로 복원하여 재선택 가능하게 함)
     const isIntf = (i) => i.section === 'interfaces_l2' || i.section === 'interfaces_l3' || (i.section && i.section.startsWith('interface'));
-    allItems = (tpl.golden_items || []).filter(i => !isIntf(i)).map(i => ({
-      ...i,
-      selected: i.selected !== undefined ? i.selected : true,
-      expected_value: i.expected_value !== undefined ? i.expected_value : i.value,
-      full_line_mode: !!i.full_line_mode,
-      expected_line: i.expected_line || (i.full_line_mode ? i.command_line : undefined)
-    }));
-    intfItems = (tpl.golden_items || []).filter(i => isIntf(i)).map(i => ({
-      ...i,
-      selected: i.selected !== undefined ? i.selected : true,
-      expected_value: i.expected_value !== undefined ? i.expected_value : i.value,
-      full_line_mode: !!i.full_line_mode,
-      expected_line: i.expected_line || (i.full_line_mode ? i.command_line : undefined)
-    }));
+    
+    const savedItemMap = new Map((tpl.golden_items || []).map(i => [i.id, i]));
+    const restoredItems = [];
+    const seenItemIds = new Set();
+
+    if (tpl.golden_parsed && Array.isArray(tpl.golden_parsed.blocks) && tpl.golden_parsed.blocks.length > 0) {
+      // 1) 원본 블록 내 모든 항목을 순회하며 복원
+      tpl.golden_parsed.blocks.forEach(block => {
+        (block.items || []).forEach(rawItem => {
+          if (seenItemIds.has(rawItem.id)) return;
+          seenItemIds.add(rawItem.id);
+
+          const saved = savedItemMap.get(rawItem.id);
+          if (saved) {
+            // 이전에 선택되어 저장된 항목: 활성화 상태
+            restoredItems.push({
+              ...rawItem,
+              ...saved,
+              selected: saved.selected !== undefined ? saved.selected : true,
+              expected_value: saved.expected_value !== undefined ? saved.expected_value : (saved.value !== undefined ? saved.value : rawItem.value),
+              full_line_mode: !!saved.full_line_mode,
+              expected_line: saved.expected_line || (saved.full_line_mode ? saved.command_line : undefined),
+              match_type: saved.match_type || 'exact',
+              weight: saved.weight || 'required'
+            });
+            savedItemMap.delete(rawItem.id);
+          } else {
+            // 이전에 선택하지 않아 제외되었던 항목: 미선택(취소선) 상태로 복원
+            restoredItems.push({
+              ...rawItem,
+              selected: false,
+              expected_value: rawItem.value !== undefined ? rawItem.value : '',
+              full_line_mode: false,
+              expected_line: rawItem.command_line,
+              match_type: rawItem.match_type || 'exact',
+              weight: rawItem.weight || 'required'
+            });
+          }
+        });
+      });
+
+      // 2) 블록 항목 외에 추가로 저장되어 있던 항목 포함
+      for (const [id, saved] of savedItemMap.entries()) {
+        if (!seenItemIds.has(id)) {
+          seenItemIds.add(id);
+          restoredItems.push({
+            ...saved,
+            selected: saved.selected !== undefined ? saved.selected : true,
+            expected_value: saved.expected_value !== undefined ? saved.expected_value : saved.value,
+            full_line_mode: !!saved.full_line_mode,
+            expected_line: saved.expected_line || (saved.full_line_mode ? saved.command_line : undefined),
+            match_type: saved.match_type || 'exact',
+            weight: saved.weight || 'required'
+          });
+        }
+      }
+    } else {
+      (tpl.golden_items || []).forEach(item => {
+        restoredItems.push({
+          ...item,
+          selected: item.selected !== undefined ? item.selected : true,
+          expected_value: item.expected_value !== undefined ? item.expected_value : item.value,
+          full_line_mode: !!item.full_line_mode,
+          expected_line: item.expected_line || (item.full_line_mode ? item.command_line : undefined)
+        });
+      });
+    }
+
+    allItems = restoredItems.filter(i => !isIntf(i));
+    intfItems = restoredItems.filter(i => isIntf(i));
     filterBlock = '';
+
+    // 블록 활성화 상태 동기화 (블록 내 선택된 항목이 1개라도 있으면 활성화)
+    parsedBlocks.forEach(b => {
+      const bItemIds = new Set((b.items || []).map(i => i.id));
+      b.enabled = restoredItems.some(i => bItemIds.has(i.id) && i.selected);
+    });
 
     // 3. UI 카운트 및 표시 복원
     const hostEl = document.getElementById('golden-hostname');
     if (hostEl) hostEl.textContent = tpl.name || '(템플릿)';
     const secEl = document.getElementById('golden-section-count');
     if (secEl) secEl.textContent = parsedBlocks.length;
+    const selectedCount = restoredItems.filter(i => i.selected).length;
     const itemEl = document.getElementById('golden-item-count');
-    if (itemEl) itemEl.textContent = allItems.length + intfItems.length;
+    if (itemEl) itemEl.textContent = selectedCount;
 
     const intfTotal = document.getElementById('intf-total-count');
-    if (intfTotal) intfTotal.textContent = intfItems.length;
+    if (intfTotal) intfTotal.textContent = intfItems.filter(i => i.selected).length;
     const intfSummaryCard = document.getElementById('golden-intf-summary');
     if (intfSummaryCard) intfSummaryCard.style.display = intfItems.length > 0 ? 'block' : 'none';
 
-    document.getElementById('golden-results-area').style.display = 'block';
-    const cancelBtn = document.getElementById('golden-cancel-btn');
-    if (cancelBtn) cancelBtn.style.display = 'inline-block';
-
-    // 드롭존에 수정 중임을 표시
-    const zone = document.getElementById('golden-drop-zone');
-    if (zone) {
-      zone.innerHTML = `
-        <div class="drop-icon">📝</div>
-        <h3>[템플릿 수정] ${escapeHtml(tpl.name)}</h3>
-        <p>저장된 설정을 불러왔습니다. 수정 후 하단 [💾 템플릿 저장하기]를 클릭하세요.</p>
-      `;
+    if (window.openGoldenDrawer) {
+      window.openGoldenDrawer(tpl);
     }
 
     buildSectionFilters();
     renderItems();
     updateLivePreview();
-    toast(`템플릿 "${tpl.name}"을(를) 수정 모드로 불러왔습니다.`, 'info');
-
-    // 세부 설정 섹션으로 스크롤 이동
-    const resArea = document.getElementById('golden-results-area');
-    if (resArea) resArea.scrollIntoView({ behavior: 'smooth' });
+    updateDrawerStats();
+    toast(`템플릿 "${tpl.name}"을(를) 편집 드로어에 불러왔습니다.`, 'info');
   } catch (err) {
     console.error('editTemplate error:', err);
     toast(`템플릿 불러오기 실패: ${err.message}`, 'error');
@@ -936,7 +1136,7 @@ async function saveTemplate() {
       expected_value: item.full_line_mode ? (item.expected_line || finalCmdLine) : (item.expected_value !== undefined ? item.expected_value : item.value),
       match_type: item.match_type || 'exact',
       weight: item.weight || 'required',
-      source: item.source || 'cisco_config_parser',
+      source: item.source || 'ciscoconfparse2',
       raw_block: item.raw_block || ''
     };
   });
@@ -949,9 +1149,7 @@ async function saveTemplate() {
 
   try {
     const goldenParsedToSave = parsedData?.parsed || {};
-    goldenParsedToSave.blocks = parsedBlocks;
-
-    await api('/api/golden/save', {
+    const saveRes = await api('/api/golden/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -961,11 +1159,21 @@ async function saveTemplate() {
         os_type: osType,
         selected_items: selectedItems,
         conditional_rules: [],
+        interface_profiles: window._currentInterfaceProfiles || [],
         golden_parsed: goldenParsedToSave,
         template_id: currentEditingId,
       }),
     });
-    toast(`골든 템플릿 "${name}" 저장 완료`, 'success');
+
+    const savedId = saveRes.template_id;
+    const hasPending = !!saveRes.has_pending_change;
+    const affectedCount = saveRes.affected_count || 0;
+
+    if (hasPending) {
+      toast(`⚠️ 골든 템플릿 "${name}" 수정 완료: Compare 연동 장비 ${affectedCount}대에 영향이 감지되어 변경 승인 대기 상태로 등록되었습니다.`, 'warning');
+    } else {
+      toast(`골든 템플릿 "${name}" 저장 완료`, 'success');
+    }
 
     // 상태 초기화
     if (nameInput) nameInput.value = '';
@@ -974,8 +1182,25 @@ async function saveTemplate() {
     const cancelBtn = document.getElementById('golden-cancel-btn');
     if (cancelBtn) cancelBtn.style.display = 'none';
 
+    if (window.closeGoldenDrawer) {
+      window.closeGoldenDrawer();
+    }
+
     if (window.loadGoldenTemplates) {
       window.loadGoldenTemplates();
+    }
+    if (window.checkPendingTemplateChanges) {
+      await window.checkPendingTemplateChanges();
+    }
+    if (window.loadCompareTree) {
+      window.loadCompareTree();
+    }
+
+    // 변경사항에 영향을 받는 Compare 장비가 있는 경우 즉시 영향도 분석 모달 열기
+    if (hasPending && window.openTemplateImpactModal) {
+      setTimeout(() => {
+        window.openTemplateImpactModal(savedId);
+      }, 350);
     }
   } catch (err) {
     toast(`저장 실패: ${err.message}`, 'error');
@@ -1165,3 +1390,296 @@ export function updateLivePreview() {
     codeEl.textContent = lines.join('\n');
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// 인터페이스 정책 프로파일 (Interface Policy Profiles) UI 핸들러
+// ════════════════════════════════════════════════════════════════════════
+
+window._currentInterfaceProfiles = [];
+window._modalCurrentRules = [];
+
+window.updateProfileTabBadge = () => {
+  const badge = document.getElementById('golden-drawer-profile-count');
+  if (badge) {
+    badge.textContent = window._currentInterfaceProfiles.length;
+  }
+};
+
+window.renderInterfaceProfiles = () => {
+  const container = document.getElementById('golden-profiles-list');
+  if (!container) return;
+
+  const profiles = window._currentInterfaceProfiles || [];
+  if (profiles.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding:28px 16px; text-align:center; background:rgba(255,255,255,0.02); border:1px dashed var(--border); border-radius:8px;">
+        <div style="font-size:28px; margin-bottom:8px;">🏷️</div>
+        <div style="font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:4px;">등록된 인터페이스 정책 프로파일이 없습니다.</div>
+        <p class="text-muted text-xs" style="max-width:480px; margin:0 auto 12px;">전체 L2/L3 인터페이스를 대변하는 공통 룰이나, Description 패턴(예: UPLINK, AP)에 따라 꼭 들어가야 할 룰셋을 정의하세요.</p>
+        <button class="btn btn-primary btn-sm" onclick="window.openProfileModal()">➕ 새 프로파일 추가</button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = profiles.map(prof => {
+    const targetType = prof.target_type || 'any';
+    const typeLabel = targetType === 'l2' ? 'L2 스위치포트' : targetType === 'l3' ? 'L3 라우티드' : '전체 인터페이스';
+    const typeColor = targetType === 'l2' ? '#58a6ff' : targetType === 'l3' ? '#3fb950' : '#d2a8ff';
+    const typeBg = targetType === 'l2' ? 'rgba(88,166,255,0.1)' : targetType === 'l3' ? 'rgba(63,185,80,0.1)' : 'rgba(210,168,255,0.1)';
+
+    const nameCond = prof.name_condition || { match_type: 'exists', pattern: '' };
+    const descCond = prof.desc_condition || { match_type: 'none', pattern: '' };
+
+    const nameCondText = nameCond.match_type === 'exists'
+      ? '<span style="color:var(--text-secondary);">모든 인터페이스명 (전체 대표)</span>'
+      : `<code>${escapeHtml(nameCond.match_type)}: ${escapeHtml(nameCond.pattern)}</code>`;
+
+    const descCondText = descCond.match_type === 'none'
+      ? '<span class="text-muted">설정 조건 없음 (Any)</span>'
+      : `<span style="color:var(--accent); font-weight:600;">[${escapeHtml(descCond.match_type)}]</span> <code>${escapeHtml(descCond.pattern)}</code>`;
+
+    const rules = prof.rules || [];
+    const reqCount = rules.filter(r => r.weight !== 'optional').length;
+    const optCount = rules.length - reqCount;
+
+    const rulesPills = rules.map(r => {
+      const isReq = r.weight !== 'optional';
+      return `
+        <div style="display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border-radius:4px; font-size:11px; font-family:'Fira Code', monospace; background:${isReq ? 'rgba(88,166,255,0.08)' : 'rgba(255,255,255,0.04)'}; border:1px solid ${isReq ? 'rgba(88,166,255,0.25)' : 'var(--border)'};">
+          <span style="color:${isReq ? '#e6edf3' : 'var(--text-muted)'};">${escapeHtml(r.command)}</span>
+          <span style="font-size:9px; color:${isReq ? '#58a6ff' : 'var(--text-muted)'}; background:rgba(0,0,0,0.3); padding:1px 4px; border-radius:3px;">${r.match_type || 'exact'}</span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="card" style="padding:14px 16px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px;">
+        <div class="flex justify-between items-start flex-wrap gap-2 mb-2">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <strong style="font-size:14px; color:var(--text-primary);">${escapeHtml(prof.name)}</strong>
+            <span style="font-size:11px; padding:2px 8px; border-radius:12px; font-weight:600; color:${typeColor}; background:${typeBg}; border:1px solid ${typeColor}40;">${typeLabel}</span>
+            <span style="font-size:11px; color:var(--text-muted);">총 ${rules.length}개 룰 (필수 ${reqCount}, 선택 ${optCount})</span>
+          </div>
+          <div class="flex gap-1">
+            <button class="btn btn-secondary btn-sm" onclick="window.openProfileModal('${prof.id}')" title="수정" style="padding:3px 8px; font-size:11px;">✏️ 수정</button>
+            <button class="btn btn-danger btn-sm" onclick="window.deleteInterfaceProfile('${prof.id}')" title="삭제" style="padding:3px 8px; font-size:11px;">🗑️ 삭제</button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px; font-size:12px; background:var(--bg-primary); padding:8px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.04);">
+          <div>
+            <span class="text-muted" style="margin-right:6px;">🔗 포트 이름:</span>
+            ${nameCondText}
+          </div>
+          <div>
+            <span class="text-muted" style="margin-right:6px;">📝 Description:</span>
+            ${descCondText}
+          </div>
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+          <span style="font-size:11px; color:var(--text-muted); font-weight:600; margin-right:4px;">필수/검사 명령어:</span>
+          ${rulesPills.length > 0 ? rulesPills : '<span class="text-muted" style="font-size:11px;">(지정된 룰 없음)</span>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+};
+
+window.openProfileModal = (profId = null) => {
+  const modal = document.getElementById('profile-edit-modal');
+  if (!modal) return;
+
+  const idInput = document.getElementById('prof-edit-id');
+  const titleEl = document.getElementById('profile-modal-title');
+  const nameInput = document.getElementById('prof-name');
+  const typeSelect = document.getElementById('prof-target-type');
+  const nameMtypeSelect = document.getElementById('prof-name-mtype');
+  const namePatternInput = document.getElementById('prof-name-pattern');
+  const descMtypeSelect = document.getElementById('prof-desc-mtype');
+  const descPatternInput = document.getElementById('prof-desc-pattern');
+
+  if (profId) {
+    const prof = (window._currentInterfaceProfiles || []).find(p => p.id === profId);
+    if (!prof) return;
+    idInput.value = prof.id;
+    if (titleEl) titleEl.innerHTML = `<span>🏷️</span><span>인터페이스 정책 프로파일 수정: ${escapeHtml(prof.name)}</span>`;
+    nameInput.value = prof.name || '';
+    typeSelect.value = prof.target_type || 'l2';
+    
+    const nc = prof.name_condition || { match_type: 'exists', pattern: '' };
+    nameMtypeSelect.value = nc.match_type || 'exists';
+    namePatternInput.value = nc.pattern || '';
+
+    const dc = prof.desc_condition || { match_type: 'none', pattern: '' };
+    descMtypeSelect.value = dc.match_type || 'none';
+    descPatternInput.value = dc.pattern || '';
+
+    window._modalCurrentRules = Array.isArray(prof.rules) ? JSON.parse(JSON.stringify(prof.rules)) : [];
+  } else {
+    idInput.value = '';
+    if (titleEl) titleEl.innerHTML = `<span>🏷️</span><span>새 인터페이스 정책 프로파일 추가</span>`;
+    nameInput.value = '';
+    typeSelect.value = 'l2';
+    nameMtypeSelect.value = 'exists';
+    namePatternInput.value = '';
+    descMtypeSelect.value = 'contains';
+    descPatternInput.value = '';
+    window._modalCurrentRules = [];
+  }
+
+  window.toggleProfNamePattern();
+  window.toggleProfDescPattern();
+  window.renderModalRulesTable();
+
+  modal.style.display = 'flex';
+};
+
+window.closeProfileModal = () => {
+  const modal = document.getElementById('profile-edit-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.toggleProfNamePattern = () => {
+  const mtype = document.getElementById('prof-name-mtype')?.value;
+  const input = document.getElementById('prof-name-pattern');
+  if (input) {
+    if (mtype === 'exists') {
+      input.disabled = true;
+      input.placeholder = '모든 인터페이스명 허용 (와일드카드)';
+    } else {
+      input.disabled = false;
+      input.placeholder = '포트명 패턴 (예: ^(Gigabit|TenGigabit)Ethernet1/0/(2[3-4])$)';
+    }
+  }
+};
+
+window.toggleProfDescPattern = () => {
+  const mtype = document.getElementById('prof-desc-mtype')?.value;
+  const input = document.getElementById('prof-desc-pattern');
+  if (input) {
+    if (mtype === 'none') {
+      input.disabled = true;
+      input.placeholder = 'Description 조건 없이 매칭';
+    } else {
+      input.disabled = false;
+      input.placeholder = 'Description 키워드/정규식 (예: UPLINK, TO-CORE, SERVER, AP)';
+    }
+  }
+};
+
+window.renderModalRulesTable = () => {
+  const tbody = document.getElementById('prof-rules-tbody');
+  const badge = document.getElementById('prof-rules-count-badge');
+  if (!tbody) return;
+
+  const rules = window._modalCurrentRules || [];
+  if (badge) badge.textContent = `${rules.length}개 룰`;
+
+  if (rules.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-muted text-center" style="padding:10px;">아직 등록된 룰이 없습니다. 위에서 명령어를 추가하세요.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rules.map((r, idx) => {
+    return `
+      <tr>
+        <td style="font-family:'Fira Code', monospace; color:#e6edf3;">${escapeHtml(r.command)}</td>
+        <td><span class="guide-badge badge-${r.match_type || 'exact'}" style="font-size:10px;">${r.match_type || 'exact'}</span></td>
+        <td><span style="font-size:11px; color:${r.weight === 'optional' ? 'var(--text-muted)' : 'var(--accent)'}; font-weight:600;">${r.weight === 'optional' ? '선택' : '필수'}</span></td>
+        <td style="text-align:center;">
+          <button class="btn btn-sm btn-danger" style="padding:2px 6px; font-size:11px;" onclick="window.deleteRuleFromModal(${idx})">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+};
+
+window.addRuleToCurrentProfile = () => {
+  const cmdInput = document.getElementById('prof-new-rule-cmd');
+  const mtypeSelect = document.getElementById('prof-new-rule-mtype');
+  const weightSelect = document.getElementById('prof-new-rule-weight');
+
+  const cmd = (cmdInput?.value || '').trim();
+  if (!cmd) return toast('명령어를 입력하세요.', 'warning');
+
+  const mtype = mtypeSelect?.value || 'exact';
+  const weight = weightSelect?.value || 'required';
+
+  window._modalCurrentRules.push({
+    id: 'rule-' + Date.now() + Math.random().toString(36).substr(2, 4),
+    command: cmd,
+    match_type: mtype,
+    weight: weight
+  });
+
+  cmdInput.value = '';
+  window.renderModalRulesTable();
+};
+
+window.deleteRuleFromModal = (idx) => {
+  if (idx >= 0 && idx < window._modalCurrentRules.length) {
+    window._modalCurrentRules.splice(idx, 1);
+    window.renderModalRulesTable();
+  }
+};
+
+window.saveProfileFromModal = () => {
+  const idInput = document.getElementById('prof-edit-id');
+  const nameInput = document.getElementById('prof-name');
+  const typeSelect = document.getElementById('prof-target-type');
+  const nameMtypeSelect = document.getElementById('prof-name-mtype');
+  const namePatternInput = document.getElementById('prof-name-pattern');
+  const descMtypeSelect = document.getElementById('prof-desc-mtype');
+  const descPatternInput = document.getElementById('prof-desc-pattern');
+
+  const name = (nameInput?.value || '').trim();
+  if (!name) return toast('프로파일 이름을 입력하세요.', 'warning');
+
+  const profId = idInput?.value || ('prof-' + Date.now());
+  const targetType = typeSelect?.value || 'l2';
+  const nameMtype = nameMtypeSelect?.value || 'exists';
+  const namePattern = (namePatternInput?.value || '').trim();
+  const descMtype = descMtypeSelect?.value || 'none';
+  const descPattern = (descPatternInput?.value || '').trim();
+
+  const newProfile = {
+    id: profId,
+    name: name,
+    target_type: targetType,
+    name_condition: {
+      match_type: nameMtype,
+      pattern: namePattern
+    },
+    desc_condition: {
+      match_type: descMtype,
+      pattern: descPattern
+    },
+    rules: window._modalCurrentRules || []
+  };
+
+  const existingIdx = window._currentInterfaceProfiles.findIndex(p => p.id === profId);
+  if (existingIdx >= 0) {
+    window._currentInterfaceProfiles[existingIdx] = newProfile;
+    toast(`인터페이스 프로파일 "${name}" 수정 완료`, 'success');
+  } else {
+    window._currentInterfaceProfiles.push(newProfile);
+    toast(`인터페이스 프로파일 "${name}" 추가 완료`, 'success');
+  }
+
+  window.closeProfileModal();
+  window.renderInterfaceProfiles();
+  window.updateProfileTabBadge();
+};
+
+window.deleteInterfaceProfile = (profId) => {
+  const prof = window._currentInterfaceProfiles.find(p => p.id === profId);
+  if (!prof) return;
+  if (!confirm(`인터페이스 정책 프로파일 "${prof.name}"을 삭제하시겠습니까?`)) return;
+
+  window._currentInterfaceProfiles = window._currentInterfaceProfiles.filter(p => p.id !== profId);
+  window.renderInterfaceProfiles();
+  window.updateProfileTabBadge();
+  toast('프로파일이 삭제되었습니다.', 'info');
+};

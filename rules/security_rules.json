@@ -1,0 +1,152 @@
+[
+  {
+    "id": "SEC-DANGER-PRIV15",
+    "level": "danger",
+    "standard": "CIS 1.1 / DISA STIG NET-0410",
+    "title": "비인가 최고 관리자(Priv 15) 계정",
+    "pattern": "\\busername\\s+\\S+.*\\b(privilege|priv)\\s+15\\b",
+    "parent_pattern": "",
+    "reason": "골든 룰에 등록되지 않은 Privilege 15 최고 권한 로컬 계정이 추가되어 백도어 및 장비 전면 장악 위험이 있습니다.",
+    "remediation": "해당 비인가 계정 삭제 (no username <user>)"
+  },
+  {
+    "id": "SEC-DANGER-SNMP-RW",
+    "level": "danger",
+    "standard": "CIS 1.3 / DISA STIG NET-0800",
+    "title": "SNMP 쓰기(RW) 권한 노출",
+    "pattern": "\\bsnmp-server\\s+community\\s+\\S+.*\\b(rw|write)\\b",
+    "parent_pattern": "",
+    "reason": "SNMP 쓰기 권한이 부여되어 비인가자에 의한 원격 장비 설정 변조 및 강제 리부팅 위험이 있습니다.",
+    "remediation": "쓰기 권한 제거 또는 SNMPv3 암호화 전환 (no snmp-server community <comm>)"
+  },
+  {
+    "id": "SEC-DANGER-SNMP-DEFAULT",
+    "level": "danger",
+    "standard": "CIS 1.3 / DISA STIG NET-0800",
+    "title": "기본 SNMP 커뮤니티 사용",
+    "pattern": "\\bsnmp-server\\s+community\\s+(public|private)\\b",
+    "parent_pattern": "",
+    "reason": "유추하기 쉬운 기본 SNMP 커뮤니티 문자열(public/private)이 활성화되어 내부 정보 유출 위험이 있습니다.",
+    "remediation": "기본 커뮤니티 삭제 및 난수형 문자열 지정 (no snmp-server community <comm>)"
+  },
+  {
+    "id": "SEC-DANGER-TELNET",
+    "level": "danger",
+    "standard": "CIS 1.2 / DISA STIG NET-0450",
+    "title": "Telnet 원격 접속 허용",
+    "pattern": "transport\\s+input\\s+.*\\b(telnet|all)\\b",
+    "parent_pattern": "",
+    "reason": "평문 전송 프로토콜인 Telnet 접속이 허용되어 네트워크 패킷 스니핑으로 관리자 비밀번호가 노출됩니다.",
+    "remediation": "SSH 전용 접속 강제 (transport input ssh)"
+  },
+  {
+    "id": "SEC-DANGER-HTTP-SERVER",
+    "level": "danger",
+    "standard": "CIS 1.2 / DISA STIG NET-0450",
+    "title": "비보안 HTTP 평문 웹 서비스 활성화",
+    "pattern": "^ip\\s+http\\s+server$",
+    "parent_pattern": "",
+    "reason": "암호화되지 않은 HTTP 80번 포트 웹 서비스가 가동되어 세션 탈취 및 취약점 공격에 노출됩니다.",
+    "remediation": "평문 HTTP 서버 비활성화 (no ip http server)"
+  },
+  {
+    "id": "SEC-DANGER-PASSWORD-NO-ENCRYPT",
+    "level": "danger",
+    "standard": "CIS 1.1.2 / DISA STIG NET-0400",
+    "title": "패스워드 암호화 비활성화",
+    "pattern": "^no\\s+service\\s+password-encryption$",
+    "parent_pattern": "",
+    "reason": "로컬 패스워드가 설정 파일에 평문으로 노출되어 어깨너머 보기 및 설정 유출 시 치명적입니다.",
+    "remediation": "서비스 패스워드 암호화 활성화 (service password-encryption)"
+  },
+  {
+    "id": "SEC-DANGER-PORT-SECURITY-OFF",
+    "level": "danger",
+    "standard": "CIS 2.1 (L2 Hardening)",
+    "title": "포트 시큐리티 무력화",
+    "pattern": "^no\\s+switchport\\s+port-security.*",
+    "parent_pattern": "^interface\\s+",
+    "reason": "포트 시큐리티 보안 방어 기능이 'no'로 해제되어 비인가 불법 단말 연결 및 MAC Flooding 공격에 취약합니다.",
+    "remediation": "포트 보안 기능 재활성화 (switchport port-security)"
+  },
+  {
+    "id": "SEC-DANGER-IP-SOURCE-GUARD-OFF",
+    "level": "danger",
+    "standard": "CIS 2.1 (L2 Hardening)",
+    "title": "IP 소스 가드 무력화",
+    "pattern": "^no\\s+ip\\s+verify\\s+source$",
+    "parent_pattern": "^interface\\s+",
+    "reason": "IP 소스 가드가 무력화되어 인위적인 IP 스푸핑 및 불법 패킷 주입 공격이 가능합니다.",
+    "remediation": "IP 소스 가드 복원 (ip verify source)"
+  },
+  {
+    "id": "SEC-DANGER-DHCP-SNOOPING-OFF",
+    "level": "danger",
+    "standard": "CIS 2.1 (L2 Hardening)",
+    "title": "DHCP 스누핑 무력화",
+    "pattern": "^no\\s+ip\\s+dhcp\\s+snooping.*",
+    "parent_pattern": "",
+    "reason": "불법 DHCP 서버(Rogue DHCP)가 위조된 게이트웨이 및 DNS 정보를 배포하는 중간자 공격(MitM)에 노출됩니다.",
+    "remediation": "DHCP 스누핑 활성화"
+  },
+  {
+    "id": "SEC-DANGER-ACL-ANY-ANY",
+    "level": "danger",
+    "standard": "CIS 3.1 / DISA STIG NET-0600",
+    "title": "전면 허용 (Permit Any Any) ACL",
+    "pattern": "^permit\\s+(ip|tcp|udp)\\s+any\\s+any$",
+    "parent_pattern": "",
+    "reason": "모든 송수신 트래픽을 필터링 없이 전면 개방하여 방화벽 및 망분리 접근 통제 정책이 완전히 무력화됩니다.",
+    "remediation": "최소 권한 기반 구체적 ACL 규칙으로 대체"
+  },
+  {
+    "id": "SEC-WARN-ROUTING-PROTOCOL",
+    "level": "warning",
+    "standard": "CIS Routing Security",
+    "title": "비인가 라우팅 프로토콜 추가",
+    "pattern": "^(router\\s+(ospf|bgp|eigrp|rip|isis))\\b",
+    "parent_pattern": "",
+    "reason": "골든 템플릿에 없는 라우팅 프로토콜이 추가되어 트래픽 경로 왜곡, 라우팅 루프 또는 경로 누출(Route Leak)이 발생할 수 있습니다.",
+    "remediation": "비인가 라우팅 프로세스 제거 (no router <proc>)"
+  },
+  {
+    "id": "SEC-WARN-STATIC-ROUTE",
+    "level": "warning",
+    "standard": "RFC 7454 / CIS Routing",
+    "title": "비인가 정적 경로(Static Route) 추가",
+    "pattern": "^(ip|ipv6)\\s+route\\s+",
+    "parent_pattern": "",
+    "reason": "비표준 정적 라우트가 추가되어 트래픽이 비인가 네트워크 또는 비정상 게이트웨이로 우회될 위험이 있습니다.",
+    "remediation": "비인가 정적 라우트 삭제 (no ip route ...)"
+  },
+  {
+    "id": "SEC-WARN-UNAUTH-ACCOUNT",
+    "level": "warning",
+    "standard": "CIS 1.1 / DISA STIG NET-0410",
+    "title": "미승인 로컬 사용자 계정 추가",
+    "pattern": "^username\\s+\\S+",
+    "parent_pattern": "",
+    "reason": "표준 골든 템플릿에 등록되지 않은 추가 로컬 사용자 계정입니다.",
+    "remediation": "해당 계정의 적격성 확인 또는 삭제"
+  },
+  {
+    "id": "SEC-WARN-LEGACY-SERVICE",
+    "level": "warning",
+    "standard": "CIS 1.4 (Unneeded Services)",
+    "title": "불필요 취약 레거시 서비스 활성화",
+    "pattern": "^(service\\s+config|ip\\s+finger|ip\\s+bootp\\s+server|ip\\s+tftp\\s+server)$",
+    "parent_pattern": "",
+    "reason": "공격 표면(Attack Surface)을 넓히는 불필요한 레거시 네트워크 서비스가 동작 중입니다.",
+    "remediation": "불필요 서비스 비활성화 (no ...)"
+  },
+  {
+    "id": "SEC-WARN-INTF-REDUNDANCY",
+    "level": "warning",
+    "standard": "Network Architecture Best Practice",
+    "title": "인터페이스 IP / 이중화 설정 변경",
+    "pattern": "^(ip\\s+address|standby|vrrp|ip\\s+helper-address)\\b",
+    "parent_pattern": "^interface\\s+",
+    "reason": "인터페이스에 비인가 IP 또는 게이트웨이 이중화(HSRP/VRRP) 설정이 추가되어 네트워크 충돌을 유발할 수 있습니다.",
+    "remediation": "표준 IP 구성 확인 및 복원"
+  }
+]

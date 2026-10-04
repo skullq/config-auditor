@@ -127,6 +127,19 @@ export async function loadCompareTree() {
             </div>
           </div>
 
+          ${t.has_pending_change ? `
+            <div class="compare-tpl-pending-ribbon" onclick="event.stopPropagation(); window.openTemplateImpactModal('${t.id}')">
+              <div class="flex items-center gap-2">
+                <span class="impact-pulse-icon">⚠️</span>
+                <strong style="color:var(--review);">골든 템플릿 규칙 변경 감지</strong>
+                <span class="text-xs text-muted">— 연동 장비 ${t.change_summary?.affected_count || items.length}대에 대한 재감사 허용 또는 롤백 대기 중</span>
+              </div>
+              <button class="btn btn-warning btn-xs flex items-center gap-1" style="margin-left:auto; font-size:11px; padding:3px 8px;">
+                <span>영향 분석 및 결정</span><span>▶</span>
+              </button>
+            </div>
+          ` : ''}
+
           <!-- 2. 트리 하위 브랜치 (들여쓰기 구조) -->
           <div class="compare-tree-branch">
             
@@ -157,7 +170,6 @@ export async function loadCompareTree() {
                   <col class="col-filename">
                   <col class="col-hostname" style="width:150px;">
                   <col class="col-time" style="width:135px;">
-                  <col class="col-status" style="width:85px;">
                   <col class="col-score" style="width:75px;">
                   <col class="col-action" style="width:180px;">
                 </colgroup>
@@ -169,14 +181,13 @@ export async function loadCompareTree() {
                     <th class="col-filename">업로드 파일</th>
                     <th class="col-hostname">HOSTNAME</th>
                     <th class="col-time">검사 시간</th>
-                    <th class="col-status">판정</th>
                     <th class="col-score">점수</th>
                     <th class="col-action" style="text-align:right;">액션</th>
                   </tr>
                 </thead>
                 <tbody id="tpl-tbody-${t.id}">
                   ${items.length === 0 ? `
-                    <tr class="empty-row"><td colspan="7" class="empty-state" style="padding:14px; font-size:12px; color:var(--text-muted);">아직 비교된 설정 파일이 없습니다. 위 업로드 영역에 파일을 추가하여 감사를 실행하세요.</td></tr>
+                    <tr class="empty-row"><td colspan="6" class="empty-state" style="padding:14px; font-size:12px; color:var(--text-muted);">아직 비교된 설정 파일이 없습니다. 위 업로드 영역에 파일을 추가하여 감사를 실행하세요.</td></tr>
                   ` : items.map(r => renderRowHtml(r, t.id)).join('')}
                 </tbody>
               </table>
@@ -208,6 +219,9 @@ export async function loadCompareTree() {
     });
 
     updateSelectionState();
+    if (window.checkPendingTemplateChanges) {
+      window.checkPendingTemplateChanges();
+    }
   } catch (err) {
     console.error('loadCompareTree error:', err);
     container.innerHTML = `<div class="empty-state" style="color:var(--danger)">비교 목록 로드 실패: ${err.message}</div>`;
@@ -233,7 +247,6 @@ function renderRowHtml(r, templateId) {
         </div>
       </td>
       <td class="col-time"><div style="font-size:12px; color:var(--text-muted); white-space:nowrap;">${new Date(r.created_at).toLocaleString('ko-KR', {dateStyle:'short',timeStyle:'short'})}</div></td>
-      <td class="col-status">${overallChip(r.overall)}</td>
       <td class="col-score"><strong>${r.score}%</strong></td>
       <td class="col-action" style="text-align:right;">
         <div class="compare-action-btns">
@@ -270,7 +283,6 @@ async function processSingleFile(file, templateId, templateName, osType) {
     </td>
     <td class="col-hostname"><span class="text-muted" style="font-size:11px;">분석 중...</span></td>
     <td class="col-time"><div class="spinner" style="width:14px;height:14px;display:inline-block"></div> 1/2 파싱 중...</td>
-    <td class="col-status">-</td>
     <td class="col-score">-</td>
     <td class="col-action">-</td>
   `;
@@ -315,7 +327,6 @@ async function processSingleFile(file, templateId, templateName, osType) {
         </div>
       </td>
       <td class="col-time"><div style="font-size:12px; color:var(--text-muted); white-space:nowrap;">${new Date().toLocaleTimeString('ko-KR')}</div></td>
-      <td class="col-status">${overallChip(result.overall)}</td>
       <td class="col-score"><strong>${result.score}%</strong></td>
       <td class="col-action" style="text-align:right;">
         <div class="compare-action-btns">
@@ -337,9 +348,7 @@ async function processSingleFile(file, templateId, templateName, osType) {
     return result;
   } catch (err) {
     const timeCell = tr.querySelector('.col-time');
-    const statusCell = tr.querySelector('.col-status');
-    if (timeCell) timeCell.innerHTML = `<span style="color:var(--danger)">❌ 오류 발생</span>`;
-    if (statusCell) statusCell.textContent = err.message;
+    if (timeCell) timeCell.innerHTML = `<span style="color:var(--danger)">❌ 오류: ${escapeHtml(err.message)}</span>`;
     return null;
   }
 }
@@ -414,10 +423,8 @@ async function batchRecompare() {
         const tr = document.getElementById(`row-${item.id}`);
         if (tr) {
           const timeCell = tr.querySelector('.col-time');
-          const statusCell = tr.querySelector('.col-status');
           const scoreCell = tr.querySelector('.col-score');
           if (timeCell) timeCell.innerHTML = `<div style="font-size:12px; color:var(--text-muted)">재비교 (${new Date().toLocaleTimeString('ko-KR')})</div>`;
-          if (statusCell) statusCell.innerHTML = overallChip(item.overall);
           if (scoreCell) scoreCell.innerHTML = `<strong>${item.score}%</strong>`;
         }
         if (!window._compareResults) window._compareResults = {};
@@ -587,16 +594,75 @@ window.closeCompareResult = () => {
   document.querySelectorAll('.compare-tpl-node tr.row-active-detail').forEach(tr => tr.classList.remove('row-active-detail'));
 };
 
+// ── Extra Config & Rollback Window Handlers ──
+window.switchResultTab = (tabName) => {
+  document.querySelectorAll('.result-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tabName);
+  });
+  document.querySelectorAll('.result-tab-content').forEach(panel => {
+    panel.style.display = panel.id === `tab-content-${tabName}` ? 'block' : 'none';
+  });
+};
+
+window.copyRollbackCmd = (btn, cmd) => {
+  navigator.clipboard.writeText(cmd).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span>✅ 복사됨!</span>';
+    btn.style.borderColor = 'var(--pass)';
+    btn.style.color = 'var(--pass)';
+    setTimeout(() => {
+      btn.innerHTML = orig;
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }, 1500);
+  });
+};
+
+window.copyFullRollbackScript = (btn) => {
+  const pre = document.getElementById('rollback-script-content');
+  if (!pre) return;
+  const scriptText = pre.textContent;
+  navigator.clipboard.writeText(scriptText).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span>✅ 복사 완료!</span>';
+    setTimeout(() => {
+      btn.innerHTML = orig;
+    }, 1800);
+    toast('전체 롤백 CLI 스크립트가 클립보드에 복사되었습니다.', 'success');
+  });
+};
+
+window.downloadResultRollback = (resultId) => {
+  if (!resultId) return;
+  window.open(`/api/compare/results/${resultId}/rollback`, '_blank');
+};
+
+window.downloadResultCleanConfig = (resultId) => {
+  if (!resultId) return;
+  window.open(`/api/compare/results/${resultId}/clean_config`, '_blank');
+};
+
 export function renderResult(result, containerId = 'compare-result-area') {
   const area = document.getElementById(containerId);
   if (!area) return;
 
-  area.dataset.resultId = result.id || '';
+  const resultId = result.id || '';
+  area.dataset.resultId = resultId;
 
   const overall = result.overall || 'pass';
   const statusIcons = { pass: '✅', review: '⚠️', fail: '❌' };
   const displayName = result.filename || result.hostname || '결과 상세';
   const stickyTop = '0px';
+
+  const extraConfigs = Array.isArray(result.extra_configs) ? result.extra_configs : [];
+  const extraCount = extraConfigs.length;
+  const extraSummary = result.extra_summary || {
+    total: extraCount,
+    danger: extraConfigs.filter(e => e.risk === 'danger').length,
+    warning: extraConfigs.filter(e => e.risk === 'warning').length,
+    info: extraConfigs.filter(e => e.risk === 'info').length,
+  };
+  const rollbackScript = result.rollback_script || '! No rollback script available.';
 
   // 드로어 상단 고정 헤더 엘리먼트 갱신
   if (containerId === 'compare-result-area') {
@@ -615,7 +681,10 @@ export function renderResult(result, containerId = 'compare-result-area') {
     }
     if (metaEl) {
       const hostExtra = (result.hostname && displayName !== result.hostname) ? ` · Hostname: ${result.hostname}` : '';
-      metaEl.textContent = `템플릿: ${result.template_name || ''} · 통과 ${result.passed_items || 0}/${result.total_items || 0} 항목${hostExtra}`;
+      const extraNotice = extraCount > 0 
+        ? ` · <span style="color:${extraSummary.danger > 0 ? '#f85149' : '#ffa657'}; font-weight:700;">⚠️ 미인가/추가 설정 ${extraCount}건 감지</span>`
+        : ` · <span style="color:var(--pass);">✓ 추가 설정 없음 (Clean)</span>`;
+      metaEl.innerHTML = `템플릿: <strong>${escapeHtml(result.template_name || '')}</strong> · 통과 ${result.passed_items || 0}/${result.total_items || 0} 항목${hostExtra}${extraNotice}`;
     }
     if (scoreEl) {
       scoreEl.textContent = `${result.score ?? 0}%`;
@@ -626,14 +695,14 @@ export function renderResult(result, containerId = 'compare-result-area') {
     }
   }
 
-  // 1. 섹션별 그룹핑
+  // 1. 골든 룰 섹션별 그룹핑
   const grouped = {};
   const rawItems = Array.isArray(result.items) ? result.items : [];
   rawItems.forEach(item => {
     let sec = item.section || '기타 설정';
     if (sec.startsWith('interface')) {
       if (item.id.includes('.uplink.') || item.id.includes('.L2.')) {
-        // 이미 'interface (uplink)' 형태임
+        // 인터페이스 약어 유지
       } else {
         sec = 'INTERFACE (PARSED)';
       }
@@ -642,7 +711,6 @@ export function renderResult(result, containerId = 'compare-result-area') {
     grouped[sec].push(item);
   });
 
-  // 2. HTML 생성
   const sectionHtmls = Object.keys(grouped).sort().map(sec => {
     const items = grouped[sec];
     const isUplink = sec.startsWith('interface (uplink)') || sec.includes('GigabitEthernet') || sec.includes('TenGigabit');
@@ -678,11 +746,15 @@ export function renderResult(result, containerId = 'compare-result-area') {
       `;
     }).join('');
 
+    const firstProfName = items.find(i => i.profile_name)?.profile_name;
+    const profBadge = firstProfName ? `<span style="font-size:11px; padding:1px 8px; border-radius:10px; background:rgba(88,166,255,0.12); color:#58a6ff; border:1px solid rgba(88,166,255,0.3); font-weight:600; margin-left:6px;">🏷️ ${escapeHtml(firstProfName)}</span>` : '';
+
     return `
       <div class="section-group" style="margin-bottom: 20px;">
         <div class="section-group-header" style="background:var(--bg-secondary); padding:8px 12px; margin-bottom:8px; border-radius:6px; font-weight:bold; color:var(--accent); font-size:13px; display:flex; align-items:center; gap:8px; border-left: 3px solid var(--accent); position: sticky; top: ${stickyTop}; z-index: 5;">
           <span style="font-size:16px;">${sectionIcon}</span> 
           <span>${sec.toUpperCase()} <span style="color:var(--text-muted); font-size:11px; font-weight:normal;">(${items.length}개 항목)</span></span>
+          ${profBadge}
         </div>
         <div class="result-items" style="display: flex; flex-direction: column; gap: 6px;">
           ${itemsHtml}
@@ -691,15 +763,144 @@ export function renderResult(result, containerId = 'compare-result-area') {
     `;
   }).join('');
 
-  if (containerId === 'compare-result-area') {
-    // 드로어 내부 렌더링: 상단 헤더가 이미 고정 패널에 있으므로 본문 섹션들만 깔끔하게 배치
-    area.innerHTML = `
-      <div class="drawer-sections-wrapper">
-        ${sectionHtmls}
+  // 2. 추가된 설정(Extra Configs) HTML 생성
+  let extraHtml = '';
+  if (extraCount === 0) {
+    extraHtml = `
+      <div class="card" style="padding:32px 20px; text-align:center; background:rgba(63,185,80,0.05); border:1px solid rgba(63,185,80,0.2);">
+        <div style="font-size:32px; margin-bottom:10px;">🛡️</div>
+        <h4 style="font-size:15px; font-weight:700; color:var(--pass); margin-bottom:6px;">추가된 미인가 설정 없음 (Clean Config)</h4>
+        <p class="text-muted text-xs">비교 대상 장비에 골든 템플릿 외의 불필요하거나 보안을 해치는 추가 명령어가 없습니다.</p>
       </div>
     `;
   } else {
-    // 모달이나 기타 범용 컨테이너 렌더링
+    const extraCards = extraConfigs.map(ec => {
+      const riskLevel = ec.risk || 'info';
+      const riskIcon = riskLevel === 'danger' ? '🚨' : riskLevel === 'warning' ? '⚠️' : 'ℹ️';
+      const riskLabel = riskLevel === 'danger' ? '보안 위험' : riskLevel === 'warning' ? '주의 / 불필요' : '추가 설정';
+      const parentLabel = ec.parent_node ? `📂 ${ec.parent_node}` : '🌐 글로벌 설정';
+      const rollbackCmd = ec.rollback_cmd || `no ${ec.command_line}`;
+      const escapedRollback = escapeHtml(rollbackCmd).replace(/'/g, "\\'");
+
+      return `
+        <div class="extra-item-card ${riskLevel}">
+          <div class="extra-item-top">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="extra-risk-badge ${riskLevel}">${riskIcon} ${riskLabel}</span>
+              <span class="extra-parent-tag">${escapeHtml(parentLabel)}</span>
+            </div>
+            <span class="extra-reason-text">${escapeHtml(ec.risk_title || '')}</span>
+          </div>
+
+          <div style="font-size:11px; color:var(--text-secondary); margin-bottom:2px;">
+            ${escapeHtml(ec.risk_reason || '')}
+          </div>
+
+          <!-- 실제 타겟에 추가된 설정 (Diff Highlight) -->
+          <div class="extra-diff-box">
+            <div class="extra-diff-line">
+              <span class="extra-diff-sign">+</span>
+              <code>${escapeHtml(ec.command_line)}</code>
+            </div>
+          </div>
+
+          <!-- 롤백 액션 바 -->
+          <div class="extra-rollback-row">
+            <div class="flex items-center gap-2" style="min-width:0; flex:1;">
+              <span style="font-size:11px; color:var(--text-muted); font-weight:600; white-space:nowrap;">롤백 CLI:</span>
+              <code class="extra-rollback-cmd" title="${escapeHtml(rollbackCmd)}">${escapeHtml(rollbackCmd)}</code>
+            </div>
+            <button class="extra-rollback-btn" onclick="window.copyRollbackCmd(this, '${escapedRollback}')" title="이 명령어만 클립보드에 복사">
+              <span>📋</span><span>롤백 복사</span>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    extraHtml = `
+      <div class="extra-alert-banner ${extraSummary.danger > 0 ? 'has-danger' : ''}">
+        <div>
+          <div class="extra-alert-title">
+            <span>${extraSummary.danger > 0 ? '🚨' : '⚠️'}</span>
+            <span>골든 템플릿 외 추가 설정 감지 (${extraCount}건)</span>
+          </div>
+          <div class="extra-alert-desc">
+            골든 룰 준수율과 별개로 장비에 등록된 불필요/보안 위협 명령어가 탐지되었습니다. 
+            (보안 위험: <strong style="color:#ff7b72">${extraSummary.danger}</strong>건, 
+             주의/불필요: <strong style="color:#ffa657">${extraSummary.warning}</strong>건, 
+             일반: <strong>${extraSummary.info}</strong>건)
+          </div>
+        </div>
+        <div class="extra-alert-actions">
+          <button class="btn btn-sm btn-primary flex items-center gap-1" onclick="window.switchResultTab('rollback')">
+            <span>⚡</span><span>롤백 스크립트 보기</span>
+          </button>
+        </div>
+      </div>
+      <div class="extra-items-list">
+        ${extraCards}
+      </div>
+    `;
+  }
+
+  // 3. 전체 롤백 스크립트 탭 HTML
+  const rollbackTabHtml = `
+    <div class="rollback-script-wrapper">
+      <div class="rollback-script-header">
+        <span>⚡ 자동 생성된 Cisco CLI 롤백 스크립트 전문</span>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-sm btn-secondary flex items-center gap-1" onclick="window.copyFullRollbackScript(this)">
+            <span>📋</span><span>스크립트 복사</span>
+          </button>
+          ${resultId ? `
+            <button class="btn btn-sm btn-secondary flex items-center gap-1" onclick="window.downloadResultRollback('${resultId}')">
+              <span>📥</span><span>.cfg 다운로드</span>
+            </button>
+            <button class="btn btn-sm btn-primary flex items-center gap-1" onclick="window.downloadResultCleanConfig('${resultId}')" title="추가 설정이 제거된 정제된 Clean 설정 파일 다운로드">
+              <span>🧹</span><span>Clean Config 다운로드</span>
+            </button>
+          ` : ''}
+        </div>
+      </div>
+      <pre class="rollback-script-pre" id="rollback-script-content">${escapeHtml(rollbackScript)}</pre>
+    </div>
+  `;
+
+  // 4. 탭 네비게이션 헤더
+  const tabsNavHtml = `
+    <div class="result-view-tabs">
+      <button class="result-tab-btn active" data-tab="golden" onclick="window.switchResultTab('golden')">
+        <span>🛡️ 골든 룰 점검</span>
+        <span class="result-tab-badge neutral">${result.passed_items || 0}/${result.total_items || 0}</span>
+      </button>
+      <button class="result-tab-btn" data-tab="extra" onclick="window.switchResultTab('extra')">
+        <span>⚠️ 추가된 설정 Diff</span>
+        <span class="result-tab-badge ${extraSummary.danger > 0 ? 'danger' : extraCount > 0 ? 'warning' : 'neutral'}">${extraCount}</span>
+      </button>
+      <button class="result-tab-btn" data-tab="rollback" onclick="window.switchResultTab('rollback')">
+        <span>⚡ 롤백 CLI 스크립트</span>
+        ${extraCount > 0 ? `<span class="result-tab-badge info">${extraCount}건</span>` : ''}
+      </button>
+    </div>
+  `;
+
+  const fullContent = `
+    ${tabsNavHtml}
+    <div id="tab-content-golden" class="result-tab-content" style="display:block;">
+      ${sectionHtmls}
+    </div>
+    <div id="tab-content-extra" class="result-tab-content" style="display:none;">
+      ${extraHtml}
+    </div>
+    <div id="tab-content-rollback" class="result-tab-content" style="display:none;">
+      ${rollbackTabHtml}
+    </div>
+  `;
+
+  if (containerId === 'compare-result-area') {
+    area.innerHTML = fullContent;
+  } else {
     area.innerHTML = `
       <div class="result-header" style="background: var(--bg-card); border-color: var(--border); margin-bottom: 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; border-radius:var(--radius-lg); border:1px solid var(--border);">
         <div style="display:flex; align-items:center; gap:16px; flex:1; min-width:0;">
@@ -709,7 +910,10 @@ export function renderResult(result, containerId = 'compare-result-area') {
               <span style="font-size:18px; font-weight:700; color:var(--text-primary);">${escapeHtml(displayName)}</span>
               ${(result.hostname && displayName !== result.hostname) ? `<span style="font-size:12px; color:var(--text-muted); font-weight:normal;">(Hostname: <code>${escapeHtml(result.hostname)}</code>)</span>` : ''}
             </div>
-            <div class="result-meta" style="margin-top:4px;">템플릿: ${escapeHtml(result.template_name || '')} · ${result.passed_items}/${result.total_items} 항목 통과</div>
+            <div class="result-meta" style="margin-top:4px;">
+              템플릿: ${escapeHtml(result.template_name || '')} · ${result.passed_items}/${result.total_items} 항목 통과
+              ${extraCount > 0 ? ` · <span style="color:#ffa657; font-weight:bold;">⚠️ 추가 설정 ${extraCount}건</span>` : ''}
+            </div>
             <div class="score-bar mt-2">
               <div class="score-fill ${overall}" style="width: ${result.score}%"></div>
             </div>
@@ -719,12 +923,9 @@ export function renderResult(result, containerId = 'compare-result-area') {
           <div style="font-size: 32px; font-weight: 800; color: var(--text-secondary)">${result.score}%</div>
         </div>
       </div>
-      <div class="results-container">
-        ${sectionHtmls}
-      </div>
+      ${fullContent}
     `;
   }
 
   area.style.display = 'block';
-  // 화면 강제 스크롤(scrollIntoView) 방지: 사용자 작업 컨텍스트 유지
 }

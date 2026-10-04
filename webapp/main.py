@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from db.database import (
     init_db, save_template, list_templates, get_template, delete_template,
+    get_pending_template_changes, rollback_template, accept_template_change,
     save_compare_result, list_compare_results, get_compare_result,
     get_setting, set_setting,
 )
@@ -32,6 +33,13 @@ from core.llm import (
 # ── App Init ───────────────────────────────────────────────────────────
 app = FastAPI(title="Network Config Auditor", version="1.0.0")
 init_db()
+
+# DB가 비어있거나 신규 환경일 때 seeds/templates/ 자동 시딩 (Git-Ops 관리)
+try:
+    from core.security_policy import seed_templates_from_disk
+    seed_templates_from_disk()
+except Exception:
+    pass
 
 UPLOAD_DIR = Path(__file__).parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -91,6 +99,7 @@ class SaveTemplateRequest(BaseModel):
     os_type: str = "iosxe"
     selected_items: list[dict]
     conditional_rules: list[dict] = []
+    interface_profiles: list[dict] = []
     golden_parsed: dict
     template_id: Optional[str] = None
 
@@ -104,10 +113,20 @@ async def golden_save(req: SaveTemplateRequest):
         os_type=req.os_type,
         golden_items=req.selected_items,
         conditional_rules=req.conditional_rules,
+        interface_profiles=req.interface_profiles,
         golden_parsed=req.golden_parsed,
         template_id=req.template_id,
     )
-    return {"template_id": tid, "message": "저장 완료"}
+    tpl = get_template(tid)
+    has_pending = bool(tpl.get("has_pending_change", 0)) if tpl else False
+    summary = tpl.get("change_summary", {}) if tpl else {}
+    affected_count = summary.get("affected_count", 0) if isinstance(summary, dict) else 0
+    return {
+        "template_id": tid,
+        "message": "저장 완료",
+        "has_pending_change": has_pending,
+        "affected_count": affected_count
+    }
 
 
 @app.get("/api/golden/templates")
@@ -127,6 +146,46 @@ async def golden_get(tid: str):
 async def golden_delete(tid: str):
     delete_template(tid)
     return {"message": "삭제 완료"}
+
+
+class ResolveChangeRequest(BaseModel):
+    template_id: str
+    action: str  # "accept" or "rollback"
+
+
+@app.get("/api/golden/pending-changes")
+async def golden_pending_changes():
+    return get_pending_template_changes()
+
+
+@app.post("/api/golden/resolve-change")
+async def golden_resolve_change(req: ResolveChangeRequest):
+    if req.action == "rollback":
+        res = rollback_template(req.template_id)
+        return res
+    elif req.action == "accept":
+        accept_template_change(req.template_id)
+        # 연동된 Compare 감사 결과 전체를 최신 골든 룰로 즉시 재감사 실행
+        from db.database import get_conn
+        with get_conn() as conn:
+            rows = conn.execute("SELECT id FROM compare_results WHERE template_id=?", (req.template_id,)).fetchall()
+        result_ids = [r["id"] for r in rows]
+        
+        re_results = []
+        if result_ids:
+            re_req = RecompareRequest(result_ids=result_ids, template_id=req.template_id)
+            re_results = await compare_recompare(re_req)
+            
+        tpl = get_template(req.template_id)
+        tpl_name = tpl["name"] if tpl else ""
+        return {
+            "status": "accepted",
+            "message": f"'{tpl_name}' 템플릿 변경사항이 최종 승인되었으며, 연동된 장비 {len(re_results)}대의 재감사가 완료되었습니다.",
+            "re_audited_count": len(re_results),
+            "template_name": tpl_name
+        }
+    else:
+        raise HTTPException(400, "action must be 'accept' or 'rollback'")
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -197,7 +256,14 @@ async def compare_run(req: RunCompareRequest):
     if not tpl:
         raise HTTPException(404, "템플릿을 찾을 수 없습니다.")
 
-    result = compare(tpl["golden_items"], req.parsed, tpl.get("conditional_rules", []))
+    golden_parsed = tpl.get("golden_parsed", {})
+    result = compare(
+        golden_items=tpl["golden_items"],
+        target_parsed=req.parsed,
+        conditional_rules=tpl.get("conditional_rules", []),
+        golden_parsed=golden_parsed,
+        interface_profiles=tpl.get("interface_profiles", [])
+    )
     hostname = req.parsed.get("hostname", "unknown")
     original_filename = req.filename or hostname or "config"
     filename = generate_unique_filename(req.template_id, original_filename)
@@ -259,7 +325,14 @@ async def compare_recompare(req: RecompareRequest):
                     target_parsed["sections"][sec] = {}
                 target_parsed["sections"][sec][it.get("id")] = it.get("actual")
 
-        new_result = compare(tpl["golden_items"], target_parsed, tpl.get("conditional_rules", []))
+        golden_parsed = tpl.get("golden_parsed", {})
+        new_result = compare(
+            golden_items=tpl["golden_items"],
+            target_parsed=target_parsed,
+            conditional_rules=tpl.get("conditional_rules", []),
+            golden_parsed=golden_parsed,
+            interface_profiles=tpl.get("interface_profiles", [])
+        )
         filename = detail.get("filename") or r.get("hostname")
         
         save_detail = dict(new_result)
@@ -340,6 +413,36 @@ async def compare_result_get(rid: str):
     if not r:
         raise HTTPException(404)
     return r
+
+
+@app.get("/api/compare/results/{rid}/rollback")
+async def compare_rollback_download(rid: str):
+    r = get_compare_result(rid)
+    if not r:
+        raise HTTPException(404, "결과를 찾을 수 없습니다.")
+    detail = r.get("detail", {})
+    script = detail.get("rollback_script", "! No rollback script available.")
+    hostname = r.get("hostname", "Device")
+    return StreamingResponse(
+        iter([script]),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=rollback_{hostname}.cfg"}
+    )
+
+
+@app.get("/api/compare/results/{rid}/clean_config")
+async def compare_clean_config_download(rid: str):
+    r = get_compare_result(rid)
+    if not r:
+        raise HTTPException(404, "결과를 찾을 수 없습니다.")
+    detail = r.get("detail", {})
+    clean_cfg = detail.get("clean_config", "")
+    hostname = r.get("hostname", "Device")
+    return StreamingResponse(
+        iter([clean_cfg]),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=clean_{hostname}.cfg"}
+    )
 
 
 @app.get("/api/compare/check_duplicate")
@@ -513,3 +616,43 @@ async def llm_report_stream(result_id: str):
                 report_file.write_text(f"⚠️ LLM 분석 실패 (Ollama 확인 필요)\n\n{basic}", encoding="utf-8")
 
     return StreamingResponse(stream_and_save(), media_type="text/event-stream")
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 선언적 보안 정책 (CIS/DISA STIG) 및 Git-Ops Seed 관리 API
+# ════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/security/rules")
+async def security_get_rules():
+    from core.security_policy import load_security_rules
+    return load_security_rules()
+
+
+@app.post("/api/security/rules/reload")
+async def security_reload_rules():
+    from core.security_policy import load_security_rules
+    rules = load_security_rules(force_reload=True)
+    return {"message": "rules/security_rules.json 동기화 완료", "count": len(rules)}
+
+
+class ExportSeedRequest(BaseModel):
+    template_id: str
+    filename: Optional[str] = None
+
+
+@app.post("/api/security/templates/export")
+async def security_export_template(req: ExportSeedRequest):
+    from core.security_policy import export_template_to_seed
+    try:
+        path = export_template_to_seed(req.template_id, req.filename)
+        return {"message": "Git Seed 템플릿 파일 생성 완료", "path": path}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/security/templates/import-seeds")
+async def security_import_seeds():
+    from core.security_policy import seed_templates_from_disk
+    count = seed_templates_from_disk()
+    return {"message": f"{count}개 Seed 템플릿 동기화 완료", "count": count}
+

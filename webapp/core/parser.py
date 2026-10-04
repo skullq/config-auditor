@@ -1,14 +1,13 @@
 """
 webapp/core/parser.py
-Cisco 설정 파서 엔진 - cisco-config-parser 3.0.0 기반
+Cisco 및 네트워크 설정 파서 엔진 - ciscoconfparse2 기반
 """
 
 import re
 import os
 import json
 from typing import Any, Dict, List, Tuple
-from cisco_config_parser import ConfigParser
-from cisco_config_parser.config_tree import ConfigTree
+from ciscoconfparse2 import CiscoConfParse
 
 # -----------------------------------------------------------------------------
 # 섹션 분류에 필요한 상수 및 유틸
@@ -20,6 +19,28 @@ TWO_WORD_PREFIXES = {
 }
 
 SKIP_RE = re.compile(r'^(Building configuration|Current configuration|Last configuration|!|.*#).*', re.I)
+
+
+class ParsedNode:
+    """
+    ciscoconfparse2의 IOSCfgLine 객체를 래핑하여
+    UI 트리 생성 및 계층 분석에 최적화된 노드 구조 제공.
+    """
+    def __init__(self, obj: Any, depth: int = 0):
+        self.raw_obj = obj
+        raw_text = getattr(obj, 'text', str(obj))
+        self.line = raw_text.strip()
+        self.raw_line = raw_text
+        self.depth = depth
+        raw_children = getattr(obj, 'children', [])
+        self.children = [
+            ParsedNode(c, depth + 1)
+            for c in raw_children
+            if not getattr(c, 'is_comment', False) and getattr(c, 'text', '').strip()
+        ]
+
+    def __repr__(self):
+        return f"<ParsedNode: {self.line} (depth={self.depth}, children={len(self.children)})>"
 
 
 def detect_os(config_text: str) -> str:
@@ -39,26 +60,34 @@ def detect_os(config_text: str) -> str:
     return 'iosxe'  # 기본값
 
 
-def detect_platform(config_text: str, os_hint: str = 'auto') -> str:
-    """cisco-config-parser가 지원하는 platform (IOS, NXOS, XR) 식별."""
+def detect_syntax(os_hint: str = 'auto', config_text: str = '') -> str:
+    """ciscoconfparse2가 지원하는 syntax ('ios', 'nxos', 'iosxr', 'asa') 식별."""
     h = str(os_hint).lower()
     if 'nx' in h:
-        return 'NXOS'
+        return 'nxos'
     if 'xr' in h:
-        return 'XR'
+        return 'iosxr'
+    if 'asa' in h:
+        return 'asa'
     if 'ios' in h:
-        return 'IOS'
+        return 'ios'
 
-    try:
-        p = ConfigParser(config_text)
-        return p.determine_platform()
-    except Exception:
-        c_low = config_text.lower()
-        if 'nx-os' in c_low or 'feature ' in c_low:
-            return 'NXOS'
-        if 'ios-xr' in c_low or 'prefix-set' in c_low:
-            return 'XR'
-        return 'IOS'
+    c_low = config_text.lower()
+    if 'nx-os' in c_low or 'feature ' in c_low:
+        return 'nxos'
+    if 'ios-xr' in c_low or 'prefix-set' in c_low:
+        return 'iosxr'
+    return 'ios'
+
+
+def detect_platform(config_text: str, os_hint: str = 'auto') -> str:
+    """플랫폼 문자열 (IOS, NXOS, XR) 반환."""
+    syntax = detect_syntax(os_hint, config_text)
+    if syntax == 'nxos':
+        return 'NXOS'
+    if syntax == 'iosxr':
+        return 'XR'
+    return 'IOS'
 
 
 def extract_hostname(config_text: str) -> str:
@@ -133,7 +162,7 @@ def auto_split_sections(config_text: str) -> dict:
     return sections
 
 
-def node_to_dict(node) -> dict:
+def node_to_dict(node: ParsedNode) -> dict:
     return {
         "line": node.line,
         "depth": getattr(node, "depth", 0),
@@ -141,7 +170,7 @@ def node_to_dict(node) -> dict:
     }
 
 
-def is_l2_interface(node, config_text: str = "") -> bool:
+def is_l2_interface(node: ParsedNode, config_text: str = "") -> bool:
     """
     인터페이스 노드가 L2 스위치포트인지 L3 라우티드 포트인지 판별.
     """
@@ -192,7 +221,7 @@ def is_l2_interface(node, config_text: str = "") -> bool:
     return False
 
 
-def classify_block(node, config_text: str = "") -> tuple[str, str]:
+def classify_block(node: ParsedNode, config_text: str = "") -> tuple[str, str]:
     line = node.line.strip()
     parts = line.split()
     first = parts[0].lower() if parts else ''
@@ -272,24 +301,27 @@ def classify_block(node, config_text: str = "") -> tuple[str, str]:
 
 def extract_all_blocks(config_text: str, os_hint: str = 'auto') -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     """
-    cisco-config-parser의 ConfigTree를 사용하여 설정을 의미 있는 블록 트리로 분할.
-    인터페이스는 요청에 따라 'L2 Interfaces (L2 인터페이스 그룹)'과
-    'L3 Interfaces (L3 인터페이스 그룹)'으로 분리되어 그룹화됨.
+    ciscoconfparse2의 CiscoConfParse를 사용하여 설정을 의미 있는 블록 트리로 분할.
+    인터페이스는 'L2 Interfaces'와 'L3 Interfaces'로 분리 그룹화됨.
     """
+    syntax = detect_syntax(os_hint, config_text)
     platform = detect_platform(config_text, os_hint)
-    parser = ConfigParser(config_text, platform=platform)
-    try:
-        model = parser.parse(include_raw_tree=True)
-    except Exception:
-        model = {}
 
-    tree = ConfigTree(config_text)
+    lines = [line for line in config_text.splitlines() if line.strip()]
+    parse = CiscoConfParse(lines, syntax=syntax, ignore_blank_lines=True)
+
+    # ciscoconfparse2 최상위 부모 노드들 추출 (주석 및 end 제외)
+    root_nodes = [
+        ParsedNode(o)
+        for o in parse.objs
+        if not o.is_child and not o.is_comment and o.text.strip() and o.text.strip().lower() != 'end'
+    ]
+
     raw_sections = auto_split_sections(config_text)
-
     blocks_map: Dict[str, Dict[str, Any]] = {}
     block_order: List[str] = []
 
-    for node in tree.root.children:
+    for node in root_nodes:
         block_id, block_title = classify_block(node, config_text)
         if block_id not in blocks_map:
             blocks_map[block_id] = {
@@ -324,7 +356,7 @@ def extract_all_blocks(config_text: str, os_hint: str = 'auto') -> Tuple[List[Di
                         "command_line": n.line.strip(),
                         "label": f"{group_prefix} > {intf_name}",
                         "value": "configured",
-                        "source": "cisco_config_parser",
+                        "source": "ciscoconfparse2",
                         "raw_block": n.line
                     })
                 else:
@@ -342,7 +374,7 @@ def extract_all_blocks(config_text: str, os_hint: str = 'auto') -> Tuple[List[Di
                             "command_line": c_line,
                             "label": f"{intf_name} > {c_line}",
                             "value": c_val,
-                            "source": "cisco_config_parser",
+                            "source": "ciscoconfparse2",
                             "raw_block": n.line + "\n " + c_line
                         })
             elif n.children:
@@ -362,7 +394,7 @@ def extract_all_blocks(config_text: str, os_hint: str = 'auto') -> Tuple[List[Di
                         "command_line": c_line,
                         "label": f"{header} > {c_line}",
                         "value": c_val,
-                        "source": "cisco_config_parser",
+                        "source": "ciscoconfparse2",
                         "raw_block": header + "\n " + c_line
                     })
             else:
@@ -377,7 +409,7 @@ def extract_all_blocks(config_text: str, os_hint: str = 'auto') -> Tuple[List[Di
                     "command_line": n.line.strip(),
                     "label": n.line.strip(),
                     "value": val,
-                    "source": "cisco_config_parser",
+                    "source": "ciscoconfparse2",
                     "raw_block": n.line.strip()
                 })
 
@@ -392,6 +424,14 @@ def extract_all_blocks(config_text: str, os_hint: str = 'auto') -> Tuple[List[Di
             "tree_nodes": tree_nodes,
             "raw_text": "\n".join(raw_lines)
         })
+
+    model = {
+        "hostname": extract_hostname(config_text),
+        "platform": platform,
+        "syntax": syntax,
+        "block_count": len(blocks),
+        "item_count": sum(b["item_count"] for b in blocks),
+    }
 
     return blocks, model, raw_sections
 
@@ -434,14 +474,12 @@ def sanitize_config(raw_text: str) -> Tuple[str, Dict[str, Any]]:
 
     # 3. 종료 지점 ('end') 감지
     end_idx = total_lines
-    has_end = False
     post_noise = []
 
     for idx in range(start_idx, total_lines):
         s = lines[idx].strip()
         if s == 'end':
             end_idx = idx + 1
-            has_end = True
             post_noise = lines[end_idx:]
             break
 
@@ -463,7 +501,7 @@ def sanitize_config(raw_text: str) -> Tuple[str, Dict[str, Any]]:
 def parse_config(config_text: str, os_type: str = 'auto') -> dict:
     """
     설정 텍스트를 파싱하여 blocks 및 sections 구조를 생성.
-    파일에 포함된 비설정 노이즈(Show 커맨드, 세션 로그 등)를 자동 정제.
+    파일에 포함된 비설정 노이즈를 자동 정제하고 ciscoconfparse2 기반으로 파싱.
     """
     pure_config, noise_info = sanitize_config(config_text)
 
@@ -476,42 +514,19 @@ def parse_config(config_text: str, os_type: str = 'auto') -> dict:
     # sections 사전 구축 (comparator.py 호환)
     sections = {}
     for sec_key, raw_b in raw_sections.items():
-        entry = {"raw": raw_b}
-        # cisco-config-parser 모델 매핑
-        s_low = sec_key.lower()
-        if s_low.startswith('interface'):
-            entry["parsed"] = {
-                "l3": model.get("l3_interfaces", []),
-                "l2_access": model.get("l2_access_interfaces", []),
-                "l2_trunk": model.get("l2_trunk_interfaces", [])
-            }
-            entry["genie"] = entry["parsed"]  # 하위 호환
-        elif s_low.startswith('line'):
-            entry["parsed"] = (model.get("identity") or {}).get("lines", [])
-            entry["genie"] = entry["parsed"]
-        elif s_low.startswith('vrf'):
-            entry["parsed"] = model.get("vrfs", [])
-            entry["genie"] = entry["parsed"]
-        elif s_low.startswith('banner'):
-            entry["parsed"] = model.get("banner", "")
-            entry["genie"] = entry["parsed"]
-        elif s_low.startswith('router'):
-            entry["parsed"] = model.get("routing", {})
-            entry["genie"] = entry["parsed"]
-        else:
-            entry["parsed"] = None
-
+        entry = {"raw": raw_b, "parsed": None, "genie": None}
         sections[sec_key] = entry
 
     return {
         "hostname": hostname,
         "os": os_type,
         "platform": model.get("platform", "IOS"),
+        "syntax": model.get("syntax", "ios"),
         "blocks": blocks,
         "sections": sections,
         "structured": model,
         "global_genie": model,  # 하위 호환
-        "config_tree": model.get("config_tree", []),
+        "config_tree": [],
         "noise_info": noise_info,
         "pure_config": pure_config
     }
@@ -552,7 +567,7 @@ def flatten_for_ui(parsed: dict) -> list:
                         "section": section_key,
                         "label": label_part,
                         "value": value_part,
-                        "source": "raw",
+                        "source": "ciscoconfparse2",
                         "raw_block": block
                     })
             else:
@@ -561,7 +576,7 @@ def flatten_for_ui(parsed: dict) -> list:
                     "section": section_key,
                     "label": header,
                     "value": "enabled",
-                    "source": "raw",
+                    "source": "ciscoconfparse2",
                     "raw_block": block
                 })
     return items
