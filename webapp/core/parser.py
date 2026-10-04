@@ -258,6 +258,14 @@ def classify_block(node, config_text: str = "") -> tuple[str, str]:
     if first.startswith('aaa'):
         return 'aaa', 'AAA & Security'
 
+    # 11. Segment Routing (SR-MPLS / SRv6)
+    if first.startswith('segment-routing'):
+        return 'segment_routing', 'Segment Routing (SR-MPLS / SRv6)'
+
+    # 12. EVPN & VXLAN Overlay
+    if first == 'evpn' or two.startswith('nv overlay') or two.startswith('feature vn-segment') or two.startswith('feature nv'):
+        return 'evpn_vxlan', 'EVPN & VXLAN Overlay'
+
     clean_first = re.sub(r'[^a-zA-Z0-9_]', '_', first)
     return f'custom_{clean_first}', f'{two.title()}'
 
